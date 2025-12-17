@@ -1,26 +1,24 @@
 from fastapi import FastAPI
-from app.inference.runner import run_inference
+from pydantic import BaseModel
+from typing import Any, Dict, List, Optional
 
-app = FastAPI(
-    title="T-CURITY Inference Server",
-    description="GPU-based inference server for CAPTCHA",
-    version="1.0.0"
-)
+from app.inference.phase_a_service import PhaseAInfer, coerce_points
 
+app = FastAPI()
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+# ✅ 서버 프로세스 시작 시 1회 로드
+phase_a = PhaseAInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_a")
 
 
-@app.post("/inference")
-def inference(payload: dict):
+class DragPayload(BaseModel):
+    points: List[Dict[str, Any]]
+
+
+@app.post("/phase-a/verify")
+def phase_a_verify(payload: Dict[str, Any]):
     """
-    payload 예:
-    {
-        "behavior": [...],
-        "phase": "A"
-    }
+    응답은 오직 사람/봇만
     """
-    result = run_inference(payload)
-    return {"result": result}
+    points = coerce_points(payload)
+    result = phase_a.infer_human_bot(points)
+    return result
