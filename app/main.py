@@ -19,6 +19,8 @@ def phase_a_verify(payload: Dict[str, Any]):
     """
     응답은 오직 사람/봇만
     """
-    points = coerce_points(payload)
-    result = phase_a.infer_human_bot(points)
-    return result
+    try:
+        points = coerce_points(payload)
+        return phase_a.infer_human_bot(points, return_score=False)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
