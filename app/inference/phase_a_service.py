@@ -82,7 +82,13 @@ class PhaseAInfer:
         thr_obj = json.loads(thr_path.read_text(encoding="utf-8"))
         self.threshold = float(thr_obj["threshold"])
 
-    def infer_human_bot(self, points: List[Dict[str, float]], *, min_points: int = 10) -> str:
+    def infer_human_bot(
+        self, 
+        points: List[Dict[str, float]], 
+        *, 
+        min_points: int = 10,
+        return_score: bool = False
+    ) -> Dict[str, Any]:
         feat = extract_features(
             points,
             line=None,
@@ -91,12 +97,25 @@ class PhaseAInfer:
             min_points=min_points,
             same_t_eps=0.0,
         )
-
-        # fail-closed
+    
         if feat is None:
-            return "봇"
-
+            result = {"pass": False, "label": "봇", "reason": "insufficient_points"}
+            if return_score:
+                result["score"] = None
+            return result
+        
         X = np.asarray(feat, dtype=float).reshape(1, -1)
         Xs = self.scaler.transform(X)
         score = float(self.model.score_samples(Xs)[0])
-        return "사람" if score > self.threshold else "봇"
+        
+        is_human = score > self.threshold
+        result = {
+            "pass": is_human,
+            "label": "사람" if is_human else "봇"
+        }
+        
+        if return_score:
+            result["score"] = round(score, 6)
+            result["threshold"] = self.threshold
+        
+        return result
