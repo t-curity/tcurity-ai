@@ -1,12 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
-
 from app.inference.phase_a_service import PhaseAInfer, coerce_points
 
 app = FastAPI()
 
-# ✅ 서버 프로세스 시작 시 1회 로드
 phase_a = PhaseAInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_a")
 
 
@@ -21,6 +19,18 @@ def phase_a_verify(payload: Dict[str, Any]):
     """
     try:
         points = coerce_points(payload)
-        return phase_a.infer_human_bot(points, return_score=False)
+        
+        result = phase_a.infer_human_bot(points, return_score=True)
+        
+        is_human = result.get("pass", False)
+        score = result.get("score")
+        threshold = result.get("threshold")
+        
+        return {
+            "pass": is_human,
+            "label": "사람" if is_human else "봇",
+            "score": score,
+            "threshold": threshold
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
