@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import random
 
 # ===================================================
@@ -23,34 +23,34 @@ app = FastAPI()
 # 서버 시작 시 1회 로드 (AI 모델들)
 # =====================================================
 phase_a = PhaseAInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_a")
-# 임시 버전 -- 추후 수정 예정
+# Phase B AI 서비스 로드
 phase_b_ai = PhaseBInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_b")
 
 
 # =====================================================
-# Phase A Payload
+# 공통 Payload 정의
 # =====================================================
 class DragPayload(BaseModel):
     points: List[Dict[str, Any]]
 
 
 # =====================================================
-# Phase A 드래그 검증 API 
+# Phase A 드래그 검증 API (최신 develop 버전 반영)
 # =====================================================
 @app.post("/phase-a/verify")
 def phase_a_verify(payload: Dict[str, Any]):
     """
-    응답은 오직 사람/봇만
+    Phase A: 드래그 궤적 기반 사람/봇 판정
     """
     try:
         points = coerce_points(payload)
-
+        
         result = phase_a.infer_human_bot(points, return_score=True)
-
+        
         is_human = result.get("pass", False)
         score = result.get("score")
         threshold = result.get("threshold")
-
+        
         return {
             "pass": is_human,
             "label": "사람" if is_human else "봇",
@@ -68,10 +68,7 @@ def phase_a_verify(payload: Dict[str, Any]):
 def phase_b_problem_generate():
     """
     Phase B 문제 재료 생성 (GPU 서버)
-
-    반환:
-    - target_class: 문제로 제시할 대분류 (한글)
-    - images: 이미지 path + 정답 여부
+    반환: target_class, 이미지 경로 및 정답 여부
     """
     target_class = random.choice(list(PHASE_B_RULES.keys()))
     problem = generate_phase_b_problem(target_class)
@@ -89,13 +86,12 @@ def phase_b_problem_generate():
 
 
 # =====================================================
-# Phase B 행동 검증 API (추가, 임시 버전)
+# Phase B 행동 검증 API
 # =====================================================
 @app.post("/phase-b/behavior/verify")
 def phase_b_behavior_verify(payload: Dict[str, Any]):
     """
-    Phase B 행동 기반 AI 추론
-    (정답 판정 ❌, 행동만 판단)
+    Phase B 행동 기반 AI 추론 (임시 버전)
     """
     try:
         features = coerce_features(payload)
