@@ -1,13 +1,15 @@
 """
 app/inference/phase_b_problem_generator.py
 
-[phase_b_problem_generator.py - 문제 출제 모듈]
+[Phase B 문제 출제 모듈]
 
 - Phase B 이미지 선택 CAPTCHA 문제 생성 전용
 - processed_images 기준 (소분류 없음)
 - 정답: target_class 폴더에서 랜덤 4장
 - 오답: rules 기반 클래스에서 랜덤 5장
 
+※ 내부 로직은 영어 클래스명 사용
+※ 사용자 노출 텍스트만 한국어 매핑
 """
 
 import os
@@ -15,8 +17,9 @@ import random
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+
 # =====================================================
-# Phase B 문제 출제 규칙 (대분류 기준)
+# Phase B 문제 출제 규칙 (대분류 기준, 내부 로직용)
 # =====================================================
 PHASE_B_RULES: Dict[str, List[str]] = {
     "Animals": ["Building", "Devices", "Fashion", "Vehicle"],
@@ -30,6 +33,24 @@ PHASE_B_RULES: Dict[str, List[str]] = {
     "Sports": ["Fashion", "Building", "Devices", "Food"],
     "Vehicle": ["Building", "Nature", "Devices", "Instrument"],
 }
+
+
+# =====================================================
+# 사용자 노출용 한국어 클래스 매핑 (Furniture 없음)
+# =====================================================
+CLASS_KO_MAP: Dict[str, str] = {
+    "Animals": "동물",
+    "Birds": "새",
+    "Building": "건물",
+    "Devices": "전자기기",
+    "Fashion": "패션",
+    "Food": "음식",
+    "Nature": "자연",
+    "Sports": "스포츠",
+    "Vehicle": "탈 것",
+    "Instrument": "악기",
+}
+
 
 # =====================================================
 # 내부 유틸
@@ -65,12 +86,13 @@ def generate_phase_b_problem(
 
     Returns:
     {
-        "question": "Animals 이미지를 모두 고르시오",
-        "target_class": "Animals",
+        "question": "동물 이미지를 모두 고르시오",
+        "target_class": "Animals",       # 내부 로직용
+        "display_class": "동물",          # 사용자 노출용
         "images": [
             {
                 "path": "...",
-                "label": "Animals",
+                "label": "Animals",       # 내부 검증용
                 "is_target": True
             },
             ...
@@ -79,7 +101,7 @@ def generate_phase_b_problem(
     """
 
     # -------------------------------------------------
-    # 0) 이미지 루트 (Phase B 전용 환경변수)
+    # 0) 이미지 루트 (환경변수)
     # -------------------------------------------------
     image_root = os.environ.get("PHASE_B_PROBLEM_IMAGE_ROOT")
     if not image_root:
@@ -97,7 +119,12 @@ def generate_phase_b_problem(
         raise FileNotFoundError(f"타겟 클래스 폴더 없음: {target_dir}")
 
     # -------------------------------------------------
-    # 1) 정답 이미지 4장 (단순 랜덤)
+    # 1) 사용자 노출용 한국어 클래스명
+    # -------------------------------------------------
+    display_class = CLASS_KO_MAP.get(target_class, target_class)
+
+    # -------------------------------------------------
+    # 2) 정답 이미지 4장
     # -------------------------------------------------
     target_pool = _collect_images_in_class_dir(target_dir)
 
@@ -110,7 +137,7 @@ def generate_phase_b_problem(
     target_images = random.sample(target_pool, num_target)
 
     # -------------------------------------------------
-    # 2) 오답 이미지 5장 (rules 기반, 클래스 중복 허용)
+    # 3) 오답 이미지 5장 (rules 기반)
     # -------------------------------------------------
     num_wrong = total_images - num_target
     wrong_pool: List[Tuple[str, Path]] = []
@@ -129,35 +156,39 @@ def generate_phase_b_problem(
     selected_wrong_images = random.sample(wrong_pool, num_wrong)
 
     # -------------------------------------------------
-    # 3) 문제 이미지 구성
+    # 4) 문제 이미지 구성
     # -------------------------------------------------
     problem_images = []
 
     for img in target_images:
         problem_images.append({
             "path": str(img),
-            "label": target_class,
+            "label": target_class,   # 내부 검증용
             "is_target": True,
         })
 
     for cls, img in selected_wrong_images:
         problem_images.append({
             "path": str(img),
-            "label": cls,
+            "label": cls,            # 내부 검증용
             "is_target": False,
         })
 
     random.shuffle(problem_images)
 
+    # -------------------------------------------------
+    # 5) 반환
+    # -------------------------------------------------
     return {
-        "question": f"{target_class} 이미지를 모두 고르시오",
+        "question": f"{display_class}에 해당하는 이미지를 모두 고르세요.",
         "target_class": target_class,
+        "display_class": display_class,
         "images": problem_images,
     }
 
 
 # =====================================================
-# 로컬 테스트용
+# 로컬 테스트
 # =====================================================
 if __name__ == "__main__":
     target = random.choice(list(PHASE_B_RULES.keys()))
