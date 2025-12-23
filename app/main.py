@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from fastapi import FastAPI, HTTPException
 import random
 
 # ===================================================
@@ -15,7 +15,11 @@ from app.inference.phase_b_problem_generator import (
     generate_phase_b_problem,
     PHASE_B_RULES,
 )
-from app.inference.phase_b_service import PhaseBInfer, coerce_features
+
+# ====================================================
+# Phase B - 행동 기반 AI (RandomForest)
+# ====================================================
+# from app.inference.phase_b_service import PhaseBInfer, coerce_features
 
 app = FastAPI()
 
@@ -24,7 +28,7 @@ app = FastAPI()
 # =====================================================
 phase_a = PhaseAInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_a")
 # 임시 버전 -- 추후 수정 예정
-phase_b_ai = PhaseBInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_b")
+# phase_b_ai = PhaseBInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_b")
 
 
 # =====================================================
@@ -32,6 +36,9 @@ phase_b_ai = PhaseBInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_b")
 # =====================================================
 class DragPayload(BaseModel):
     points: List[Dict[str, Any]]
+
+class PhaseBGeneratePayload(BaseModel):
+    target_class: Optional[str] = None
 
 
 # =====================================================
@@ -44,64 +51,60 @@ def phase_a_verify(payload: Dict[str, Any]):
     """
     try:
         points = coerce_points(payload)
-
-        result = phase_a.infer_human_bot(points, return_score=True)
-
-        is_human = result.get("pass", False)
-        score = result.get("score")
-        threshold = result.get("threshold")
-
-        return {
-            "pass": is_human,
-            "label": "사람" if is_human else "봇",
-            "score": score,
-            "threshold": threshold
-        }
+        return phase_a.infer_human_bot(points, return_score=False)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 # =====================================================
-# Phase B 문제 "재료" 생성 API
+# Phase B 문제 생성 API (POST 유지 + base64)
 # =====================================================
-@app.get("/phase-b/problem/generate")
-def phase_b_problem_generate():
-    """
-    Phase B 문제 재료 생성 (GPU 서버)
-
-    반환:
-    - target_class: 문제로 제시할 대분류 (한글)
-    - images: 이미지 path + 정답 여부
-    """
-    target_class = random.choice(list(PHASE_B_RULES.keys()))
-    problem = generate_phase_b_problem(target_class)
-
-    return {
-        "target_class": problem["target_class"],
-        "images": [
-            {
-                "path": img["path"],
-                "is_target": img["is_target"],
-            }
-            for img in problem["images"]
-        ],
-    }
-
-
-# =====================================================
-# Phase B 행동 검증 API (추가, 임시 버전)
-# =====================================================
-@app.post("/phase-b/behavior/verify")
-def phase_b_behavior_verify(payload: Dict[str, Any]):
-    """
-    Phase B 행동 기반 AI 추론
-    (정답 판정 ❌, 행동만 판단)
-    """
+@app.post("/phase-b/generate")
+def phase_b_problem_generate(payload: PhaseBGeneratePayload):
     try:
-        features = coerce_features(payload)
-        return phase_b_ai.infer_human_bot(
-            features,
-            return_score=False
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        target_class = payload.target_class
+        if target_class is None:
+            target_class = random.choice(list(PHASE_B_RULES.keys()))
+
+        problem = generate_phase_b_problem(target_class)
+
+        # ✅ Backend가 받아야 할 모든 정보 반환
+        return {
+            "question": problem["question"],
+            "target_class": problem["target_class"],
+            "display_class": problem["display_class"],
+
+            # ✅ FE에 보여줄 이미지들
+            "images": [
+                {
+                    "image_id": img["uuid"],
+                    "image_base64": img["image_base64"],
+                }
+                for img in problem["images"]
+            ],
+
+            # ✅ Backend 전용 (FE로는 전달 ❌)
+            "answer_uuids": problem["answer_uuids"],
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# # =====================================================
+# # Phase B 행동 검증 -- 임시 버전 !!! 추후 변경 예정
+# # =====================================================
+# @app.post("/phase-b/behavior/verify")
+# def phase_b_behavior_verify(payload: PhaseBBehaviorPayload):
+#     """
+#     Phase B 행동 기반 AI 추론
+#     (정답 판정 ❌, 행동만 판단)
+#     """
+#     try:
+#         features = coerce_features(payload.behavior)
+#         return phase_b_ai.infer_human_bot(
+#             features,
+#             return_score=False
+#         )
+#     except ValueError as e:
+#         raise HTTPException(status_code=400, detail=str(e))
