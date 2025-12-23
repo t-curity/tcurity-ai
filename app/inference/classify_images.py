@@ -18,6 +18,7 @@ import os
 import json
 from pathlib import Path
 from typing import List, Dict
+import uuid
 
 import torch
 from torchvision import transforms
@@ -142,9 +143,8 @@ class ImageClassifier:
 
             # ---------- confidence 미달 ----------
             if conf < min_confidence:
-                out_path = (
-                    output_dir / "unknown" / f"unknown_{idx:06d}.jpg"
-                )
+                filename = f"{uuid.uuid4()}.jpg"
+                out_path = output_dir / "unknown" / filename
                 resized.save(out_path, format="JPEG", quality=95)
 
                 stats["low_confidence"] += 1
@@ -156,10 +156,10 @@ class ImageClassifier:
                 })
                 continue
 
+
             # ---------- 정상 분류 ----------
-            out_path = (
-                output_dir / label / f"{label.lower()}_{idx:06d}.jpg"
-            )
+            filename = f"{uuid.uuid4()}.jpg"
+            out_path = output_dir / label / filename
             resized.save(out_path, format="JPEG", quality=95)
 
             stats["processed"] += 1

@@ -1,25 +1,12 @@
-"""
-app/inference/phase_b_problem_generator.py
-
-[Phase B 문제 출제 모듈]
-
-- Phase B 이미지 선택 CAPTCHA 문제 생성 전용
-- processed_images 기준 (소분류 없음)
-- 정답: target_class 폴더에서 랜덤 4장
-- 오답: rules 기반 클래스에서 랜덤 5장
-
-※ 내부 로직은 영어 클래스명 사용
-※ 사용자 노출 텍스트만 한국어 매핑
-"""
-
 import os
 import random
+import base64
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 
 # =====================================================
-# Phase B 문제 출제 규칙 (대분류 기준, 내부 로직용)
+# Phase B 문제 출제 규칙
 # =====================================================
 PHASE_B_RULES: Dict[str, List[str]] = {
     "Animals": ["Building", "Devices", "Fashion", "Vehicle"],
@@ -35,9 +22,6 @@ PHASE_B_RULES: Dict[str, List[str]] = {
 }
 
 
-# =====================================================
-# 사용자 노출용 한국어 클래스 매핑 (Furniture 없음)
-# =====================================================
 CLASS_KO_MAP: Dict[str, str] = {
     "Animals": "동물",
     "Birds": "새",
@@ -51,24 +35,29 @@ CLASS_KO_MAP: Dict[str, str] = {
     "Instrument": "악기",
 }
 
+IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
+
 
 # =====================================================
 # 내부 유틸
 # =====================================================
-IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
-
-
-def _collect_images_in_class_dir(class_dir: Path) -> List[Path]:
-    """
-    processed_images/<Class>/ 아래의 이미지 파일 수집
-    """
+def _collect_images(class_dir: Path) -> List[Path]:
     if not class_dir.exists():
         return []
-
     return [
         p for p in class_dir.iterdir()
         if p.is_file() and p.suffix.lower() in IMAGE_EXTS
     ]
+
+
+def _image_to_base64(image_path: Path) -> str:
+    with image_path.open("rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+
+def _extract_uuid(image_path: Path) -> str:
+    # <uuid>.jpg → uuid
+    return image_path.stem
 
 
 # =====================================================
@@ -82,122 +71,75 @@ def generate_phase_b_problem(
     rules: Dict[str, List[str]] = PHASE_B_RULES,
 ) -> Dict:
     """
-    Phase B CAPTCHA 문제 1개 생성
-
-    Returns:
-    {
-        "question": "동물 이미지를 모두 고르시오",
-        "target_class": "Animals",       # 내부 로직용
-        "display_class": "동물",          # 사용자 노출용
-        "images": [
-            {
-                "path": "...",
-                "label": "Animals",       # 내부 검증용
-                "is_target": True
-            },
-            ...
-        ]
-    }
+    Phase B CAPTCHA 문제 생성 (UUID + base64 기반)
     """
 
-    # -------------------------------------------------
-    # 0) 이미지 루트 (환경변수)
-    # -------------------------------------------------
     image_root = os.environ.get("PHASE_B_PROBLEM_IMAGE_ROOT")
     if not image_root:
-        raise RuntimeError(
-            "PHASE_B_PROBLEM_IMAGE_ROOT 환경변수가 설정되지 않았습니다"
-        )
+        raise RuntimeError("PHASE_B_PROBLEM_IMAGE_ROOT not set")
 
     image_root = Path(image_root)
 
     if target_class not in rules:
-        raise ValueError(f"정의되지 않은 target_class: {target_class}")
+        raise ValueError(f"Invalid target_class: {target_class}")
 
-    target_dir = image_root / target_class
-    if not target_dir.exists():
-        raise FileNotFoundError(f"타겟 클래스 폴더 없음: {target_dir}")
-
-    # -------------------------------------------------
-    # 1) 사용자 노출용 한국어 클래스명
-    # -------------------------------------------------
     display_class = CLASS_KO_MAP.get(target_class, target_class)
 
-    # -------------------------------------------------
-    # 2) 정답 이미지 4장
-    # -------------------------------------------------
-    target_pool = _collect_images_in_class_dir(target_dir)
+    # -------------------------------
+    # 1) 정답 이미지
+    # -------------------------------
+    target_dir = image_root / target_class
+    target_pool = _collect_images(target_dir)
 
     if len(target_pool) < num_target:
-        raise RuntimeError(
-            f"{target_class} 정답 이미지 부족: "
-            f"{len(target_pool)} < {num_target}"
-        )
+        raise RuntimeError("Not enough target images")
 
-    target_images = random.sample(target_pool, num_target)
+    target_imgs = random.sample(target_pool, num_target)
 
-    # -------------------------------------------------
-    # 3) 오답 이미지 5장 (rules 기반)
-    # -------------------------------------------------
+    # -------------------------------
+    # 2) 오답 이미지
+    # -------------------------------
     num_wrong = total_images - num_target
-    wrong_pool: List[Tuple[str, Path]] = []
+    wrong_pool: List[Path] = []
 
     for cls in rules[target_class]:
-        cls_dir = image_root / cls
-        imgs = _collect_images_in_class_dir(cls_dir)
-        for img in imgs:
-            wrong_pool.append((cls, img))
+        wrong_pool.extend(_collect_images(image_root / cls))
 
     if len(wrong_pool) < num_wrong:
-        raise RuntimeError(
-            f"오답 이미지 풀 부족: {len(wrong_pool)} < {num_wrong}"
-        )
+        raise RuntimeError("Not enough wrong images")
 
-    selected_wrong_images = random.sample(wrong_pool, num_wrong)
+    wrong_imgs = random.sample(wrong_pool, num_wrong)
 
-    # -------------------------------------------------
-    # 4) 문제 이미지 구성
-    # -------------------------------------------------
-    problem_images = []
+    # -------------------------------
+    # 3) 문제 구성
+    # -------------------------------
+    images = []
+    answer_uuids = set()
 
-    for img in target_images:
-        problem_images.append({
-            "path": str(img),
-            "label": target_class,   # 내부 검증용
-            "is_target": True,
+    for img in target_imgs:
+        uid = _extract_uuid(img)
+        answer_uuids.add(uid)
+        images.append({
+            "uuid": uid,
+            "image_base64": _image_to_base64(img),
         })
 
-    for cls, img in selected_wrong_images:
-        problem_images.append({
-            "path": str(img),
-            "label": cls,            # 내부 검증용
-            "is_target": False,
+    for img in wrong_imgs:
+        uid = _extract_uuid(img)
+        images.append({
+            "uuid": uid,
+            "image_base64": _image_to_base64(img),
         })
 
-    random.shuffle(problem_images)
+    random.shuffle(images)
 
-    # -------------------------------------------------
-    # 5) 반환
-    # -------------------------------------------------
+    # -------------------------------
+    # 4) 반환
+    # -------------------------------
     return {
-        "question": f"{display_class}에 해당하는 이미지를 모두 고르세요.",
-        "target_class": target_class,
-        "display_class": display_class,
-        "images": problem_images,
+    "question": f"{display_class}에 해당하는 이미지를 모두 고르세요.",
+    "target_class": target_class,
+    "display_class": display_class,
+    "images": images,                    # FE용
+    "answer_uuids": list(answer_uuids),  # 서버용
     }
-
-
-# =====================================================
-# 로컬 테스트
-# =====================================================
-if __name__ == "__main__":
-    target = random.choice(list(PHASE_B_RULES.keys()))
-    problem = generate_phase_b_problem(target)
-
-    print(problem["question"])
-    for img in problem["images"]:
-        print(
-            img["label"],
-            "✔" if img["is_target"] else "✘",
-            img["path"],
-        )
