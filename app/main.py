@@ -1,7 +1,7 @@
-from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
-
+from fastapi import FastAPI, HTTPException
+import random
 
 # ===================================================
 # Phase A
@@ -17,9 +17,9 @@ from app.inference.phase_b_problem_generator import (
 )
 
 # ====================================================
-# Phase B - 행동 기반 AI -- 임시 버전 !!! 추후 변경 예정
+# Phase B - 행동 기반 AI (RandomForest)
 # ====================================================
-from app.inference.phase_b_service import PhaseBInfer, coerce_features
+from app.inference.phase_b_service import PhaseBInfer
 
 
 app = FastAPI()
@@ -28,12 +28,15 @@ app = FastAPI()
 # 서버 시작 시 1회 로드 (AI 모델들)
 # =====================================================
 phase_a = PhaseAInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_a")
-# 임시 버전 !!! 추후 변경 예정
-phase_b_ai = PhaseBInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_b")
+phase_b_ai = PhaseBInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_b")  # phase_b_rf_matched.pkl 등 자동 탐색
 
 
 class DragPayload(BaseModel):
     points: List[Dict[str, Any]]
+
+
+class PhaseBGeneratePayload(BaseModel):
+    target_class: Optional[str] = None
 
 
 # =====================================================
@@ -52,46 +55,53 @@ def phase_a_verify(payload: Dict[str, Any]):
 
 
 # =====================================================
-# Phase B 문제 "재료" 생성 API (GPU 서버 핵심)
+# Phase B 문제 생성 API (POST 유지 + base64)
 # =====================================================
-@app.get("/phase-b/problem/generate")
-def phase_b_problem_generate():
-    """
-    Phase B 문제 재료 생성 (GPU 서버)
+@app.post("/phase-b/generate")
+def phase_b_problem_generate(payload: PhaseBGeneratePayload):
+    try:
+        target_class = payload.target_class
+        if target_class is None:
+            target_class = random.choice(list(PHASE_B_RULES.keys()))
 
-    반환:
-    - 이미지 path 목록
-    - 어떤 이미지가 정답인지 (backend 전달용)
-    """
-    target_class = random.choice(list(PHASE_B_RULES.keys()))
-    problem = generate_phase_b_problem(target_class)
+        problem = generate_phase_b_problem(target_class)
 
-    return {
-        "target_class": problem["target_class"],
-        "images": [
-            {
-                "path": img["path"],
-                "is_target": img["is_target"],
-            }
-            for img in problem["images"]
-        ],
-    }
+        return {
+            "question": problem["question"],
+            "target_class": problem["target_class"],
+            "display_class": problem["display_class"],
+            "images": [
+                {
+                    "image_base64": img["image_base64"],
+                    "label": img["label"],
+                    "is_target": img["is_target"],
+                }
+                for img in problem["images"]
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================
-# Phase B 행동 검증 -- 임시 버전 !!! 추후 변경 예정
+# Phase B 행동 검증 API (Phase A처럼: points -> feature -> RF)
 # =====================================================
-@app.post("/phase-b/behavior/verify")
-def phase_b_behavior_verify(payload: PhaseBBehaviorPayload):
+@app.post("/phase-b/verify")
+def phase_b_behavior_verify(payload: Dict[str, Any]):
     """
     Phase B 행동 기반 AI 추론
     (정답 판정 ❌, 행동만 판단)
     """
     try:
-        features = coerce_features(payload.behavior)
-        return phase_b_ai.infer_human_bot(
-            features,
-            return_score=False
+        # payload가 {"behavior": {...}}로 오면 내부를 사용, 아니면 payload 그대로 사용
+        data = payload.get("behavior") if isinstance(payload, dict) and isinstance(payload.get("behavior"), dict) else payload
+
+        return phase_b_ai.infer_from_payload(
+            data,
+            return_score=False,   # 필요하면 True로
+            return_features=False # 디버깅 시 True
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
