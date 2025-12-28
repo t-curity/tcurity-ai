@@ -23,9 +23,9 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import joblib
+import os
 
-
-DEFAULT_MODEL_DIR = Path("/home/ubuntu/tcurity-ai/models/phase_b")
+DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models/phase_b"))
 
 # 학습에서 사용한 (behavior-only) 기본 14개 feature fallback
 FEATURE_NAMES_FALLBACK = [
@@ -53,7 +53,7 @@ def _import_extract_features():
     """
     import sys
 
-    project_root = Path("/home/ubuntu/tcurity-ai")
+    project_root = Path(os.getenv("PROJECT_ROOT", "/app"))
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 

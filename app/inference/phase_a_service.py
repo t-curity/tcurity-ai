@@ -1,16 +1,17 @@
-from __future__ import annotations
+from __future__ import annotat
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import numpy as np
 import joblib
+import os
 
-DEFAULT_MODEL_DIR = Path("/home/ubuntu/tcurity-ai/models/phase_a")
+DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models/phase_a"))
 
 
 def _import_extract_features():
     import sys
-    project_root = Path("/home/ubuntu/tcurity-ai")
+    project_root = Path(os.getenv("PROJECT_ROOT", "/app"))
     if project_root.exists() and str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
     candidates = [
