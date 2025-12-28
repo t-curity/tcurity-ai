@@ -6,7 +6,7 @@ import numpy as np
 import joblib
 import os
 
-DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models/phase_a"))
+DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_A_DIR", "/models/phase_a"))
 
 
 def _import_extract_features():

@@ -25,7 +25,7 @@ import numpy as np
 import joblib
 import os
 
-DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models/phase_b"))
+DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_B_DIR", "/models/phase_b"))
 
 # 학습에서 사용한 (behavior-only) 기본 14개 feature fallback
 FEATURE_NAMES_FALLBACK = [
