@@ -3,6 +3,7 @@ name: build-push-deploy-ai
 on:
   push:
     branches: ["develop"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,8 +13,10 @@ env:
   IMAGE: ghcr.io/t-curity/ai
 
 jobs:
-  build-push-deploy:
+  build-push:
+    # ✅ 반드시 GitHub-hosted 사용 (self-hosted 금지)
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +28,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # ✅ 캐시를 GH Actions cache로(러너 디스크 안 잡아먹게)
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -32,7 +36,13 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:sha-${{ github.sha }}
             ${{ env.IMAGE }}:develop
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
+  deploy:
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger infra-deploy (gpu/ai)
         uses: peter-evans/repository-dispatch@v3
         with:
