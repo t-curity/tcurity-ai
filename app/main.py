@@ -29,8 +29,8 @@ logger = logging.getLogger("uvicorn.error")
 # =====================================================
 # 서버 시작 시 1회 로드 (AI 모델들)
 # =====================================================
-phase_a = PhaseAInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_a")
-phase_b_ai = PhaseBInfer(model_dir="/home/ubuntu/tcurity-ai/models/phase_b")  # phase_b_rf_matched.pkl 등 자동 탐색
+phase_a = PhaseAInfer()
+phase_b_ai = PhaseBInfer()  # phase_b_rf_matched.pkl 등 자동 탐색
 
 
 class PhaseBGeneratePayload(BaseModel):
