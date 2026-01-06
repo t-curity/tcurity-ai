@@ -27,7 +27,7 @@ import os, json, uuid, random
 from datetime import datetime
 
 DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_B_DIR", "/models/phase_b"))
-PHASE_B_DATA_DIR = Path(os.getenv("PHASE_B_DATA_DIR", "/data/phase_b_trainset"))
+PHASE_B_DATA_DIR = Path(os.getenv("PHASE_B_DATA_DIR", "/data/phase_b"))
 PHASE_B_SAVE_ENABLED = os.getenv("PHASE_B_SAVE_ENABLED", "0").strip() == "1"
 PHASE_B_SAVE_RATIO = float(os.getenv("PHASE_B_SAVE_RATIO", "1.0"))
 
@@ -288,7 +288,7 @@ def save_phase_b_sample(
     uid = uuid.uuid4().hex[:10]
 
     label = infer.get("label")
-    bucket = "human_pred" if label == "사람" else ("bot_pred" if label == "봇" else "unknown")
+    bucket = "human" if label == "사람" else ("bot" if label == "봇" else "unknown")
 
     out_dir = PHASE_B_DATA_DIR / bucket / ymd
     out_dir.mkdir(parents=True, exist_ok=True)
