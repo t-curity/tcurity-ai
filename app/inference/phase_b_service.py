@@ -288,7 +288,7 @@ def save_phase_b_sample(
     uid = uuid.uuid4().hex[:10]
 
     label = infer.get("label")
-    bucket = "human" if label == "사람" else ("bot" if label == "봇" else "unknown")
+    bucket = "human_pred" if label == "사람" else ("bot_pred" if label == "봇" else "unknown")
 
     out_dir = PHASE_B_DATA_DIR / bucket / ymd
     out_dir.mkdir(parents=True, exist_ok=True)
