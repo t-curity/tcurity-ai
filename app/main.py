@@ -20,8 +20,7 @@ from app.inference.phase_b_problem_generator import (
 # ====================================================
 # Phase B - 행동 기반 AI (RandomForest)
 # ====================================================
-from app.inference.phase_b_service import PhaseBInfer
-
+from app.inference.phase_b_service import PhaseBInfer, save_phase_b_sample
 
 app = FastAPI()
 logger = logging.getLogger("uvicorn.error")
@@ -218,19 +217,26 @@ def phase_b_problem_generate(payload: PhaseBGeneratePayload):
 # =====================================================
 @app.post("/phase-b/verify")
 def phase_b_behavior_verify(payload: Dict[str, Any]):
-    """
-    Phase B 행동 기반 AI 추론 (정답 판정 ❌, 행동만 판단)
-    """
     try:
         data = coerce_phase_b_payload(payload)
 
-        return phase_b_ai.infer_from_payload(
+        infer_full = phase_b_ai.infer_from_payload(
             data,
-            return_score=False,    # 필요하면 True로
-            return_features=False  # 디버깅 시 True
+            return_score=True,
+            return_features=True,   # 용량 부담되면 False로
         )
+
+        try:
+            save_phase_b_sample(normalized_payload=data, infer=infer_full)
+        except Exception:
+            logger.exception("phase-b sample save failed")
+
+        # 응답은 기존처럼
+        return {"pass": infer_full["pass"], "label": infer_full["label"]}
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("phase-b/verify failed")
         raise HTTPException(status_code=500, detail=str(e))
+

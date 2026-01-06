@@ -23,9 +23,13 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import joblib
-import os
+import os, json, uuid, random
+from datetime import datetime
 
 DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_B_DIR", "/models/phase_b"))
+PHASE_B_DATA_DIR = Path(os.getenv("PHASE_B_DATA_DIR", "/data/phase_b_trainset"))
+PHASE_B_SAVE_ENABLED = os.getenv("PHASE_B_SAVE_ENABLED", "0").strip() == "1"
+PHASE_B_SAVE_RATIO = float(os.getenv("PHASE_B_SAVE_RATIO", "1.0"))
 
 # 학습에서 사용한 (behavior-only) 기본 14개 feature fallback
 FEATURE_NAMES_FALLBACK = [
@@ -267,6 +271,49 @@ class PhaseBInfer:
 
         return out
 
+
+def save_phase_b_sample(
+    *,
+    normalized_payload: Dict[str, Any],  # coerce_phase_b_payload 결과
+    infer: Dict[str, Any],               # infer_from_payload 결과(return_score/return_features 가능)
+) -> Optional[Path]:
+    if not PHASE_B_SAVE_ENABLED:
+        return None
+    if PHASE_B_SAVE_RATIO < 1.0 and random.random() > PHASE_B_SAVE_RATIO:
+        return None
+
+    now = datetime.now()
+    ymd = now.strftime("%Y%m%d")
+    stamp = now.strftime("%Y%m%d_%H%M%S_%f")
+    uid = uuid.uuid4().hex[:10]
+
+    label = infer.get("label")
+    bucket = "human_pred" if label == "사람" else ("bot_pred" if label == "봇" else "unknown")
+
+    out_dir = PHASE_B_DATA_DIR / bucket / ymd
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    out_path = out_dir / f"{stamp}_{uid}.json"
+    tmp_path = out_path.with_suffix(".json.tmp")
+
+    record = {
+        # ✅ 원본(정규화된) 행동 데이터: 나중에 feature extractor 바꿔도 재가공 가능
+        "behavior": normalized_payload,
+
+        # ✅ 추론 결과 (원하면 score/features까지)
+        "inference": {
+            "pass": bool(infer.get("pass")),
+            "pred_label": label,
+            "score": infer.get("score"),
+            "threshold": infer.get("threshold"),
+            "features": infer.get("features"),  # return_features=True일 때만 들어옴
+        },
+        "received_at": now.isoformat(timespec="seconds"),
+    }
+
+    tmp_path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp_path, out_path)
+    return out_path
 
 # =============================================================================
 # Singleton helper (FastAPI에서 재사용하기 좋음)
