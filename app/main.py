@@ -236,7 +236,7 @@ def phase_b_behavior_verify(payload: Dict[str, Any]):
         infer_full = phase_b_ai.infer_from_payload(
             data,
             return_score=True,
-            return_features=True,   # 용량 부담되면 False로
+            return_features=False,   # 용량 부담되면 False로
         )
 
         try:
