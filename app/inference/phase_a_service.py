@@ -1,12 +1,20 @@
 from __future__ import annotations
-import json
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import numpy as np
 import joblib
 import os
+import json
+import uuid
+import random
+from datetime import datetime
+
 
 DEFAULT_MODEL_DIR = Path(os.getenv("MODEL_A_DIR", "/models/phase_a"))
+PHASE_A_DATA_DIR = Path(os.getenv("PHASE_A_DATA_DIR", "/data/drag_trainset"))
+PHASE_A_SAVE_ENABLED = os.getenv("PHASE_A_SAVE_ENABLED", "0").strip() == "1"
+PHASE_A_SAVE_RATIO = float(os.getenv("PHASE_A_SAVE_RATIO", "1.0")) 
 
 
 def _import_extract_features():
@@ -111,3 +119,59 @@ class PhaseAInfer:
             result["threshold"] = self.threshold
 
         return result
+
+def save_phase_a_sample(
+    *,
+    raw_payload: Dict[str, Any],
+    points: List[Dict[str, float]],
+    infer: Dict[str, Any],
+) -> Optional[Path]:
+    """
+    Phase A 요청 샘플을 json으로 저장.
+    - points는 coerce_points로 정규화된 값을 저장(학습 재사용 목적)
+    - infer는 score/threshold 포함 가능(return_score=True로 받은 결과)
+    """
+    if not PHASE_A_SAVE_ENABLED:
+        return None
+    if PHASE_A_SAVE_RATIO < 1.0 and random.random() > PHASE_A_SAVE_RATIO:
+        return None
+
+    now = datetime.now()
+    ymd = now.strftime("%Y%m%d")
+    stamp = now.strftime("%Y%m%d_%H%M%S_%f")
+    uid = uuid.uuid4().hex[:10]
+
+    pred_label = infer.get("label")
+    if pred_label in ("사람", "human", "HUMAN"):
+        bucket = "human_pred"
+    elif pred_label in ("봇", "bot", "BOT"):
+        bucket = "bot_pred"
+    else:
+        bucket = "unknown"
+
+    out_dir = PHASE_A_DATA_DIR / bucket / ymd
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{stamp}_{uid}.json"
+    tmp_path = out_path.with_suffix(".json.tmp")
+
+    record = {
+        # ✅ 학습용 핵심
+        "points": points,
+
+        # ✅ 나중에 라벨링/분석에 도움(모델 점수 포함)
+        "inference": {
+            "pass": bool(infer.get("pass")),
+            "pred_label": pred_label,
+            "score": infer.get("score"),
+            "threshold": infer.get("threshold"),
+        },
+
+        # ✅ 선택 메타(필요한 것만)
+        "received_at": now.isoformat(timespec="seconds"),
+        "line": raw_payload.get("line") or raw_payload.get("cutline") or raw_payload.get("guide_line"),
+        "metadata": raw_payload.get("metadata"),
+    }
+
+    tmp_path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp_path, out_path)  # atomic swap
+    return out_path

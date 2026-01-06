@@ -4,10 +4,11 @@ from fastapi import FastAPI, HTTPException
 import random
 import logging
 
+
 # ===================================================
 # Phase A
 # ===================================================
-from app.inference.phase_a_service import PhaseAInfer, coerce_points
+from app.inference.phase_a_service import PhaseAInfer, coerce_points, save_phase_a_sample
 
 # ====================================================
 # Phase B - 문제 생성
@@ -174,7 +175,19 @@ def phase_a_verify(payload: Dict[str, Any]):
     """
     try:
         points = coerce_points(payload)
-        return phase_a.infer_human_bot(points, return_score=False)
+        
+        # 저장용으로는 score/threshold까지 받되(내부용)
+        infer_full = phase_a.infer_human_bot(points, return_score=True)
+
+        # 저장 실패해도 추론 API는 정상 동작하도록 try/except
+        try:
+            save_phase_a_sample(raw_payload=payload, points=points, infer=infer_full)
+        except Exception:
+            logger.exception("phase-a sample save failed")
+
+        # 응답은 기존 정책 유지(사람/봇만)
+        return {"pass": infer_full["pass"], "label": infer_full["label"]}
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
