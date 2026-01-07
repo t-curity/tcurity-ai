@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-feature_extractor.py
+feature_extractor_v2.py
 
-드래그 궤적에서 36개 특징을 추출하는 모듈
+드래그 궤적에서 20개 핵심 특징을 추출하는 모듈 (최적화 버전)
+
+변경사항:
+- 기존 36개 → 20개로 압축
+- 중요도 낮은 피처 제거
+- 봇 탐지에 효과적인 시간 패턴 피처 4개 추가
 
 사용법:
-    from feature_extractor import extract_features
+    from feature_extractor_v2 import extract_features
     features = extract_features(points)  # points: [{"x": ..., "y": ..., "t": ...}, ...]
 """
 
@@ -19,33 +24,34 @@ from scipy.signal import find_peaks
 
 Point = Dict[str, float]
 
-# 36개 특징 이름 (디버깅/분석용)
+# 20개 피처 이름
 FEATURE_NAMES = [
-    # 1. 기본 궤적 통계 (4개)
-    'num_points', 'x_range', 'y_range', 'total_time',
-    # 2. 속도 특징 (8개)
-    'mean_speed', 'std_speed', 'max_speed', 'min_speed', 
-    'median_speed', 'iqr_speed', 'skew_speed', 'kurt_speed',
-    # 3. 가속도 특징 (3개)
-    'mean_acc', 'std_acc', 'max_abs_acc',
-    # 4. Jerk 특징 (3개)
+    # 1. 궤적 기본 (2개)
+    'y_range', 'total_time',
+    
+    # 2. 속도 (4개)
+    'mean_speed', 'std_speed', 'max_speed', 'iqr_speed',
+    
+    # 3. 가속도 (1개)
+    'mean_acc',
+    
+    # 4. Jerk (3개) - 움직임 자연스러움
     'mean_abs_jerk', 'std_jerk', 'max_abs_jerk',
-    # 5. 방향 특징 (4개)
-    'mean_abs_angle_change', 'std_angle_change', 'max_abs_angle_change', 'sharp_turns',
-    # 6. 시간 간격 특징 (5개)
-    'mean_dt', 'std_dt', 'max_dt', 'min_dt', 'cv_time',
-    # 7. 멈춤/정지 특징 (2개)
-    'pauses', 'pause_ratio',
-    # 8. 미세 움직임 (1개)
-    'micro_movement_ratio',
-    # 9. 궤적 매끄러움 (2개)
-    'mean_smoothness', 'std_smoothness',
-    # 10. 피크 특징 (1개)
-    'num_peaks',
-    # 11. 초기 반응 (1개)
-    'initial_speed',
-    # 12. 궤적 선형성 (2개)
-    'mean_deviation_from_line', 'max_deviation_from_line'
+    
+    # 5. 방향 (1개)
+    'std_angle_change',
+    
+    # 6. 시간 간격 (3개) - ⭐ 봇 구분 핵심
+    'mean_dt', 'max_dt', 'cv_time',
+    
+    # 7. 피크/초기속도 (2개)
+    'num_peaks', 'initial_speed',
+    
+    # 8. 새로 추가된 봇 탐지 피처 (4개) - ⭐ NEW
+    'speed_entropy',       # 속도 분포 엔트로피 (봇은 낮음)
+    'dt_entropy',          # 시간간격 엔트로피 (봇은 낮음)
+    'end_deceleration',    # 끝부분 감속률 (사람은 끝에서 느려짐)
+    'start_acceleration',  # 시작부분 가속률 (사람은 시작에서 빨라짐)
 ]
 
 
@@ -105,6 +111,29 @@ def sanitize_points(
     return cleaned, {"dropped": dropped, "reordered": reordered, "merged": merged}
 
 
+def _calc_entropy(values: np.ndarray, bins: int = 10) -> float:
+    """히스토그램 기반 엔트로피 계산"""
+    if len(values) < 2:
+        return 0.0
+    
+    # 값의 범위가 너무 작으면 0 반환
+    if np.max(values) - np.min(values) < 1e-10:
+        return 0.0
+    
+    hist, _ = np.histogram(values, bins=bins, density=True)
+    hist = hist[hist > 0]  # 0인 bin 제거
+    
+    if len(hist) == 0:
+        return 0.0
+    
+    # 정규화
+    hist = hist / hist.sum()
+    
+    # 엔트로피 계산
+    entropy = -np.sum(hist * np.log2(hist + 1e-10))
+    return float(entropy)
+
+
 def extract_features(
     points: List[Dict[str, Any]],
     *,
@@ -119,7 +148,7 @@ def extract_features(
     img_h: float = 200.0,
 ) -> Optional[np.ndarray]:
     """
-    드래그 궤적에서 36개 특징 추출
+    드래그 궤적에서 20개 핵심 특징 추출 (최적화 버전)
     
     Args:
         points: [{"x": float, "y": float, "t": float}, ...]
@@ -127,7 +156,7 @@ def extract_features(
         sanitize_time: timestamp 정리 여부 (기본 True)
     
     Returns:
-        np.ndarray (36,) or None (포인트 부족 시)
+        np.ndarray (20,) or None (포인트 부족 시)
     """
     if sanitize_time:
         pts, _ = sanitize_points(points, sort_by_t=True, merge_same_t=True, same_t_eps=same_t_eps)
@@ -152,15 +181,13 @@ def extract_features(
     features: List[float] = []
 
     # ========================================
-    # 1. 기본 궤적 통계 (4개)
+    # 1. 궤적 기본 (2개)
     # ========================================
-    features.append(float(len(pts)))                    # num_points
-    features.append(float(np.max(x) - np.min(x)))       # x_range
     features.append(float(np.max(y) - np.min(y)))       # y_range
     features.append(float(t[-1]))                       # total_time
 
     # ========================================
-    # 2. 속도 특징 (8개)
+    # 2. 속도 (4개)
     # ========================================
     dx = np.diff(x)
     dy = np.diff(y)
@@ -173,22 +200,16 @@ def extract_features(
     features.append(float(np.mean(speed)))              # mean_speed
     features.append(float(np.std(speed)))               # std_speed
     features.append(float(np.max(speed)))               # max_speed
-    features.append(float(np.min(speed)))               # min_speed
-    features.append(float(np.median(speed)))            # median_speed
     features.append(float(np.percentile(speed, 75) - np.percentile(speed, 25)))  # iqr_speed
-    features.append(float(stats.skew(speed)))           # skew_speed
-    features.append(float(stats.kurtosis(speed)))       # kurt_speed
 
     # ========================================
-    # 3. 가속도 특징 (3개)
+    # 3. 가속도 (1개)
     # ========================================
     acc = np.diff(speed)
     features.append(float(np.mean(acc)))                # mean_acc
-    features.append(float(np.std(acc)))                 # std_acc
-    features.append(float(np.max(np.abs(acc))))         # max_abs_acc
 
     # ========================================
-    # 4. Jerk 특징 (3개)
+    # 4. Jerk (3개) - 움직임 자연스러움
     # ========================================
     if len(acc) > 1:
         jerk = np.diff(acc)
@@ -199,74 +220,27 @@ def extract_features(
         features.extend([0.0, 0.0, 0.0])
 
     # ========================================
-    # 5. 방향 특징 (4개)
+    # 5. 방향 (1개)
     # ========================================
     angles = np.arctan2(dy, dx)
     angle_changes = np.diff(angles) if len(angles) > 1 else np.array([])
     
-    # 각도 변화를 -π ~ π 범위로 정규화
     if len(angle_changes) > 0:
         angle_changes = (angle_changes + np.pi) % (2 * np.pi) - np.pi
-        features.append(float(np.mean(np.abs(angle_changes))))  # mean_abs_angle_change
-        features.append(float(np.std(angle_changes)))           # std_angle_change
-        features.append(float(np.max(np.abs(angle_changes))))   # max_abs_angle_change
-        # 급격한 방향 전환 횟수 (>90도)
-        sharp_turns = np.sum(np.abs(angle_changes) > np.pi / 2)
-        features.append(float(sharp_turns))                     # sharp_turns
+        features.append(float(np.std(angle_changes)))   # std_angle_change
     else:
-        features.extend([0.0, 0.0, 0.0, 0.0])
+        features.append(0.0)
 
     # ========================================
-    # 6. 시간 간격 특징 (5개)
+    # 6. 시간 간격 (3개) - ⭐ 봇 구분 핵심
     # ========================================
     features.append(float(np.mean(dt)))                 # mean_dt
-    features.append(float(np.std(dt)))                  # std_dt
     features.append(float(np.max(dt)))                  # max_dt
-    features.append(float(np.min(dt)))                  # min_dt
     cv_time = float(np.std(dt) / (np.mean(dt) + 1e-6))
     features.append(cv_time)                            # cv_time
 
     # ========================================
-    # 7. 멈춤/정지 특징 (2개)
-    # ========================================
-    pause_threshold = np.percentile(speed, 10)
-    pauses = np.sum(speed < pause_threshold)
-    features.append(float(pauses))                      # pauses
-    features.append(float(pauses / len(speed)))         # pause_ratio
-
-    # ========================================
-    # 8. 미세 움직임 (1개)
-    # ========================================
-    small_movements = np.sum(dist < 2.0)  # 2픽셀 미만
-    features.append(float(small_movements / len(dist))) # micro_movement_ratio
-
-    # ========================================
-    # 9. 궤적 매끄러움 (2개)
-    # ========================================
-    if len(x) >= 3:
-        smoothness_scores = []
-        for i in range(len(x) - 2):
-            v1 = np.array([x[i+1] - x[i], y[i+1] - y[i]])
-            v2 = np.array([x[i+2] - x[i+1], y[i+2] - y[i+1]])
-            
-            norm1 = np.linalg.norm(v1)
-            norm2 = np.linalg.norm(v2)
-            
-            if norm1 > 1e-12 and norm2 > 1e-12:
-                cos_angle = np.dot(v1, v2) / (norm1 * norm2)
-                cos_angle = np.clip(cos_angle, -1.0, 1.0)
-                smoothness_scores.append(float(cos_angle))
-        
-        if smoothness_scores:
-            features.append(float(np.mean(smoothness_scores)))  # mean_smoothness
-            features.append(float(np.std(smoothness_scores)))   # std_smoothness
-        else:
-            features.extend([0.0, 0.0])
-    else:
-        features.extend([0.0, 0.0])
-
-    # ========================================
-    # 10. 피크 특징 (1개)
+    # 7. 피크/초기속도 (2개)
     # ========================================
     if len(speed) > 5:
         peaks, _ = find_peaks(speed, distance=3)
@@ -274,41 +248,56 @@ def extract_features(
     else:
         features.append(0.0)
 
-    # ========================================
-    # 11. 초기 반응 (1개)
-    # ========================================
     if len(speed) >= 5:
         features.append(float(np.mean(speed[:5])))      # initial_speed
     else:
         features.append(float(np.mean(speed)))
 
     # ========================================
-    # 12. 궤적 선형성 (2개)
+    # 8. 새로 추가된 봇 탐지 피처 (4개) - ⭐ NEW
     # ========================================
-    if len(x) > 2:
-        start = np.array([x[0], y[0]])
-        end = np.array([x[-1], y[-1]])
-        line_vec = end - start
-        line_length = np.linalg.norm(line_vec)
-        
-        if line_length > 1e-12:
-            deviations = []
-            for i in range(len(x)):
-                point = np.array([x[i], y[i]])
-                point_vec = point - start
-                projection = np.dot(point_vec, line_vec) / (line_length ** 2) * line_vec
-                deviation = np.linalg.norm(point_vec - projection)
-                deviations.append(deviation)
-            
-            features.append(float(np.mean(deviations)))     # mean_deviation_from_line
-            features.append(float(np.max(deviations)))      # max_deviation_from_line
+    
+    # speed_entropy: 속도 분포 엔트로피 (봇은 균일해서 낮음, 사람은 다양해서 높음)
+    features.append(_calc_entropy(speed, bins=10))      # speed_entropy
+    
+    # dt_entropy: 시간간격 엔트로피 (봇은 균일해서 낮음, 사람은 불규칙해서 높음)
+    features.append(_calc_entropy(dt, bins=10))         # dt_entropy
+    
+    # end_deceleration: 끝부분 감속률 (사람은 끝에서 느려짐, 봇은 일정)
+    n = len(speed)
+    if n >= 10:
+        mid_speed = np.mean(speed[n//3:2*n//3])
+        end_speed = np.mean(speed[-5:])
+        if mid_speed > 1e-10:
+            end_decel = (mid_speed - end_speed) / mid_speed
         else:
-            features.extend([0.0, 0.0])
+            end_decel = 0.0
     else:
-        features.extend([0.0, 0.0])
+        end_decel = 0.0
+    features.append(float(end_decel))                   # end_deceleration
+    
+    # start_acceleration: 시작부분 가속률 (사람은 시작에서 빨라짐, 봇은 일정)
+    if n >= 10:
+        start_speed = np.mean(speed[:5])
+        mid_speed = np.mean(speed[n//3:2*n//3])
+        if mid_speed > 1e-10:
+            start_accel = (mid_speed - start_speed) / mid_speed
+        else:
+            start_accel = 0.0
+    else:
+        start_accel = 0.0
+    features.append(float(start_accel))                 # start_acceleration
 
     return np.array(features, dtype=float)
 
 
 # 하위 호환성
-extract_features_v3 = extract_features
+extract_features_v2 = extract_features
+
+
+# 테스트용
+if __name__ == "__main__":
+    print(f"피처 개수: {len(FEATURE_NAMES)}")
+    print("\n피처 목록:")
+    for i, name in enumerate(FEATURE_NAMES):
+        print(f"  [{i:2d}] {name}")
