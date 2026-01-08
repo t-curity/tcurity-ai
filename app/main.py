@@ -190,11 +190,8 @@ def phase_a_verify(payload: Dict[str, Any]):
         threshold = infer_full.get("threshold", phase_a.threshold)
         
         if score is not None:
-            # score 범위: 대략 -0.5 ~ 0 (Isolation Forest)
-            # threshold 기준으로 정규화: threshold = 0.5, 그 위는 0.5~1.0, 아래는 0~0.5
-            # 간단한 선형 변환: confidence = (score - min_score) / (max_score - min_score)
-            min_score = -0.5  # 대략적인 최소값 (봇)
-            max_score = 0.0   # 대략적인 최대값 (확실한 사람)
+            min_score = -0.75  # 확실한 봇
+            max_score = -0.35  # 확실한 사람
             
             # threshold 기준 정규화
             if score >= threshold:
