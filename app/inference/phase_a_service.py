@@ -40,7 +40,7 @@ def _import_extract_features():
 extract_features = _import_extract_features()
 
 
-ddef coerce_points(payload: Dict[str, Any]) -> List[Dict[str, float]]:
+def coerce_points(payload: Dict[str, Any]) -> List[Dict[str, float]]:
     points = payload.get("points") or payload.get("trajectory") or payload.get("data")
     if not isinstance(points, list) or not points:
         raise ValueError("points list missing")
