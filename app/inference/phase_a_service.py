@@ -40,17 +40,20 @@ def _import_extract_features():
 extract_features = _import_extract_features()
 
 
-def coerce_points(payload: Dict[str, Any]) -> List[Dict[str, float]]:
+ddef coerce_points(payload: Dict[str, Any]) -> List[Dict[str, float]]:
     points = payload.get("points") or payload.get("trajectory") or payload.get("data")
     if not isinstance(points, list) or not points:
         raise ValueError("points list missing")
     out: List[Dict[str, float]] = []
     for p in points:
-        if not isinstance(p, dict):
-            continue
-        if not all(k in p for k in ("x", "y", "t")):
-            continue
-        out.append({"x": float(p["x"]), "y": float(p["y"]), "t": float(p["t"])})
+        # 배열 형식: [x, y, t, event] 지원
+        if isinstance(p, (list, tuple)):
+            if len(p) >= 3:
+                out.append({"x": float(p[0]), "y": float(p[1]), "t": float(p[2])})
+        # dict 형식: {"x", "y", "t"} 지원
+        elif isinstance(p, dict):
+            if all(k in p for k in ("x", "y", "t")):
+                out.append({"x": float(p["x"]), "y": float(p["y"]), "t": float(p["t"])})
     if len(out) < 3:
         raise ValueError("too few valid points")
     return out
