@@ -170,7 +170,7 @@ def coerce_phase_b_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 @app.post("/phase-a/verify")
 def phase_a_verify(payload: Dict[str, Any]):
     """
-    응답은 오직 사람/봇만
+    응답: pass, label, confidence (난이도 조절용)
     """
     try:
         points = coerce_points(payload)
@@ -184,8 +184,35 @@ def phase_a_verify(payload: Dict[str, Any]):
         except Exception:
             logger.exception("phase-a sample save failed")
 
-        # 응답은 기존 정책 유지(사람/봇만)
-        return {"pass": infer_full["pass"], "label": infer_full["label"]}
+        # score를 0~1 confidence로 변환
+        # score가 threshold보다 높을수록 사람에 가까움
+        score = infer_full.get("score")
+        threshold = infer_full.get("threshold", phase_a.threshold)
+        
+        if score is not None:
+            # score 범위: 대략 -0.5 ~ 0 (Isolation Forest)
+            # threshold 기준으로 정규화: threshold = 0.5, 그 위는 0.5~1.0, 아래는 0~0.5
+            # 간단한 선형 변환: confidence = (score - min_score) / (max_score - min_score)
+            min_score = -0.5  # 대략적인 최소값 (봇)
+            max_score = 0.0   # 대략적인 최대값 (확실한 사람)
+            
+            # threshold 기준 정규화
+            if score >= threshold:
+                # 사람 영역: threshold~max_score → 0.5~1.0
+                confidence = 0.5 + 0.5 * (score - threshold) / (max_score - threshold + 1e-6)
+            else:
+                # 봇 영역: min_score~threshold → 0.0~0.5
+                confidence = 0.5 * (score - min_score) / (threshold - min_score + 1e-6)
+            
+            confidence = max(0.0, min(1.0, confidence))
+        else:
+            confidence = 1.0 if infer_full["pass"] else 0.0
+
+        return {
+            "pass": infer_full["pass"], 
+            "label": infer_full["label"],
+            "confidence": round(confidence, 4)
+        }
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
