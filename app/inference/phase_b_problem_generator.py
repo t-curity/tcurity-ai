@@ -137,7 +137,7 @@ def generate_phase_b_problem(
     # 4) 반환
     # -------------------------------
     return {
-    "question": f"{display_class}에 해당하는 이미지를 모두 고르세요.",
+    "question": f"{display_class}에 해당하는 이미지를 순서대로 모두 고르세요.",
     "target_class": target_class,
     "display_class": display_class,
     "images": images,                    # FE용
