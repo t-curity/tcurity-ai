@@ -171,7 +171,7 @@ def coerce_phase_b_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 def phase_a_verify(payload: Dict[str, Any]):
     print(f"[DEBUG] Received payload keys: {payload.keys()}")
     print(f"[DEBUG] points count: {len(payload.get('points', []))}")
-    ...
+    print(f"[DEBUG] first point: {payload.get('points', [])[0] if payload.get('points') else 'N/A'}")
     """
     응답: pass, label, confidence (난이도 조절용)
     """
