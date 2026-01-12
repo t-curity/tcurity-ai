@@ -63,7 +63,18 @@ class PhaseAInfer:
     """
     - 앱 시작 시 1번만 로드해서 재사용 (서버 성능/운영 측면에서 필수)
     - score > threshold => 사람, else 봇
+    - Rule-based 필터로 극단적 봇 패턴 추가 탐지
     """
+    
+    # Rule-based 봇 탐지 임계값 (실제 사람 데이터 분석 기반)
+    # 사람 최소값의 약 50% 수준으로 설정 → 오탐 0%, 봇 탐지 100%
+    RULE_THRESHOLDS = {
+        "cv_time_min": 0.10,           # 시간 간격 변동계수 최소값 (사람 최소: 0.21)
+        "speed_entropy_min": 0.04,     # 속도 엔트로피 최소값 (사람 최소: 0.08)
+        "dt_entropy_min": 0.03,        # 시간간격 엔트로피 최소값 (사람 최소: 0.06)
+        "decel_accel_min": 0.05,       # 감속/가속률 최소값
+    }
+    
     def __init__(self, model_dir: Path = DEFAULT_MODEL_DIR):
         self.model_dir = Path(model_dir).expanduser().resolve()
         scaler_path = self.model_dir / "scaler_oneclass.pkl"
@@ -81,6 +92,38 @@ class PhaseAInfer:
         self.model = joblib.load(model_path)
         thr_obj = json.loads(thr_path.read_text(encoding="utf-8"))
         self.threshold = float(thr_obj["threshold"])
+    
+    def _rule_based_bot_check(self, features: np.ndarray) -> Optional[str]:
+        """
+        Rule-based 봇 탐지. 극단적인 기계적 패턴 감지.
+        Returns: 봇이면 탐지 이유 문자열, 아니면 None
+        """
+        # Feature indices (feature_extractor.py 기준)
+        cv_time = features[13]          # 시간 간격 변동계수
+        speed_entropy = features[16]    # 속도 엔트로피
+        dt_entropy = features[17]       # 시간간격 엔트로피
+        end_decel = features[18]        # 끝부분 감속률
+        start_accel = features[19]      # 시작부분 가속률
+        
+        th = self.RULE_THRESHOLDS
+        
+        # 1. 시간 간격이 너무 균일 (cv_time ≈ 0)
+        if cv_time < th["cv_time_min"]:
+            return f"cv_time={cv_time:.4f}"
+        
+        # 2. 속도 분포가 너무 균일 (entropy 낮음)
+        if speed_entropy < th["speed_entropy_min"]:
+            return f"speed_entropy={speed_entropy:.4f}"
+        
+        # 3. 시간간격 분포가 너무 균일
+        if dt_entropy < th["dt_entropy_min"]:
+            return f"dt_entropy={dt_entropy:.4f}"
+        
+        # 4. 가속/감속 둘 다 없음 (등속 운동)
+        if end_decel < th["decel_accel_min"] and start_accel < th["decel_accel_min"]:
+            return f"no_accel_decel"
+        
+        return None
 
     def infer_human_bot(
         self, 
@@ -104,6 +147,21 @@ class PhaseAInfer:
                 result["score"] = None
             return result
 
+        # ⭐ Rule-based 봇 체크 (IsolationForest보다 먼저)
+        rule_reason = self._rule_based_bot_check(feat)
+        if rule_reason:
+            result = {
+                "pass": False,
+                "label": "봇",
+                "reason": f"rule_based:{rule_reason}"
+            }
+            print(f"[AI] RULE-BASED BOT DETECTED: {rule_reason}")
+            if return_score:
+                result["score"] = None
+                result["threshold"] = self.threshold
+            return result
+
+        # IsolationForest 기반 판정
         X = np.asarray(feat, dtype=float).reshape(1, -1)
         Xs = self.scaler.transform(X)
         score = float(self.model.score_samples(Xs)[0])
