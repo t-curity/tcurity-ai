@@ -40,11 +40,14 @@ def _import_extract_features():
 extract_features = _import_extract_features()
 
 
-def remove_pause_gaps(points: List[Dict[str, float]], pause_threshold_ms: float = 200.0) -> List[Dict[str, float]]:
+def remove_pause_gaps(points: List[Dict[str, float]], pause_threshold_ms: float = 200.0, move_threshold: float = 0.005) -> List[Dict[str, float]]:
     """
-    멈춤 구간(pause_threshold_ms 이상의 시간 간격)을 제거하고 시간을 재조정.
+    멈춤 구간을 제거하고 시간을 재조정.
     
-    예: [0, 16, 32, 1200, 1216, 1232] (1200ms에서 멈춤)
+    멈춤 조건: 시간 gap >= pause_threshold_ms AND 위치 변화 < move_threshold
+    (위치가 거의 안 변했으면 멈춤, 위치가 변했으면 느린 드래그로 유지)
+    
+    예: [0, 16, 32, 1200, 1216, 1232] (1200ms에서 멈춤, 위치 변화 없음)
      → [0, 16, 32, 48, 64, 80] (멈춤 구간 제거, 시간 연속화)
     """
     if len(points) < 2:
@@ -60,9 +63,19 @@ def remove_pause_gaps(points: List[Dict[str, float]], pause_threshold_ms: float 
         curr_t = float(points[i].get("t", 0))
         dt = curr_t - prev_t
         
-        # 멈춤 구간이면 시간 간격을 일반적인 값(16ms)으로 대체
-        if dt >= pause_threshold_ms:
-            dt = 16.0  # 일반적인 프레임 간격
+        # 위치 변화 계산
+        prev_x = float(points[i - 1].get("x", 0))
+        prev_y = float(points[i - 1].get("y", 0))
+        curr_x = float(points[i].get("x", 0))
+        curr_y = float(points[i].get("y", 0))
+        distance = ((curr_x - prev_x) ** 2 + (curr_y - prev_y) ** 2) ** 0.5
+        
+        # 멈춤 조건: 시간 gap이 크고 AND 위치 변화가 작음
+        is_pause = dt >= pause_threshold_ms and distance < move_threshold
+        
+        if is_pause:
+            dt = 16.0  # 멈춤이면 16ms로 대체
+        # else: 느린 드래그면 원래 dt 유지
         
         accumulated_time += dt
         
