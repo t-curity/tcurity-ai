@@ -73,6 +73,8 @@ class PhaseAInfer:
         "speed_entropy_min": 0.04,     # 속도 엔트로피 최소값 (사람 최소: 0.08)
         "dt_entropy_min": 0.03,        # 시간간격 엔트로피 최소값 (사람 최소: 0.06)
         "decel_accel_min": 0.05,       # 감속/가속률 최소값
+        "min_points": 10,              # 최소 포인트 수 (사람 최소: 13)
+        "min_total_time_ms": 200,      # 최소 총 시간 ms (사람 최소: 261ms)
     }
     
     def __init__(self, model_dir: Path = DEFAULT_MODEL_DIR):
@@ -93,19 +95,27 @@ class PhaseAInfer:
         thr_obj = json.loads(thr_path.read_text(encoding="utf-8"))
         self.threshold = float(thr_obj["threshold"])
     
-    def _rule_based_bot_check(self, features: np.ndarray) -> Optional[str]:
+    def _rule_based_bot_check(self, features: np.ndarray, num_points: int = 0, total_time_ms: float = 0) -> Optional[str]:
         """
         Rule-based 봇 탐지. 극단적인 기계적 패턴 감지.
         Returns: 봇이면 탐지 이유 문자열, 아니면 None
         """
+        th = self.RULE_THRESHOLDS
+        
+        # 0. 포인트 수가 너무 적음 (instant 봇)
+        if num_points > 0 and num_points < th["min_points"]:
+            return f"too_few_points={num_points}"
+        
+        # 0-1. 총 시간이 너무 짧음 (instant 봇)
+        if total_time_ms > 0 and total_time_ms < th["min_total_time_ms"]:
+            return f"too_fast={total_time_ms:.0f}ms"
+        
         # Feature indices (feature_extractor.py 기준)
         cv_time = features[13]          # 시간 간격 변동계수
         speed_entropy = features[16]    # 속도 엔트로피
         dt_entropy = features[17]       # 시간간격 엔트로피
         end_decel = features[18]        # 끝부분 감속률
         start_accel = features[19]      # 시작부분 가속률
-        
-        th = self.RULE_THRESHOLDS
         
         # 1. 시간 간격이 너무 균일 (cv_time ≈ 0)
         if cv_time < th["cv_time_min"]:
@@ -132,6 +142,33 @@ class PhaseAInfer:
         min_points: int = 10,
         return_score: bool = False
     ) -> Dict[str, Any]:
+        # 포인트 수와 총 시간 계산 (Rule-based 체크용)
+        num_points = len(points)
+        total_time_ms = 0
+        if num_points >= 2:
+            try:
+                total_time_ms = float(points[-1].get("t", 0)) - float(points[0].get("t", 0))
+            except:
+                pass
+        
+        # ⭐ 포인트 수/시간 기반 빠른 체크 (feature 추출 전)
+        th = self.RULE_THRESHOLDS
+        if num_points < th["min_points"]:
+            result = {"pass": False, "label": "봇", "reason": f"rule_based:too_few_points={num_points}"}
+            print(f"[AI] RULE-BASED BOT DETECTED: too_few_points={num_points}")
+            if return_score:
+                result["score"] = None
+                result["threshold"] = self.threshold
+            return result
+        
+        if total_time_ms > 0 and total_time_ms < th["min_total_time_ms"]:
+            result = {"pass": False, "label": "봇", "reason": f"rule_based:too_fast={total_time_ms:.0f}ms"}
+            print(f"[AI] RULE-BASED BOT DETECTED: too_fast={total_time_ms:.0f}ms")
+            if return_score:
+                result["score"] = None
+                result["threshold"] = self.threshold
+            return result
+        
         feat = extract_features(
             points,
             line=None,
@@ -148,7 +185,7 @@ class PhaseAInfer:
             return result
 
         # ⭐ Rule-based 봇 체크 (IsolationForest보다 먼저)
-        rule_reason = self._rule_based_bot_check(feat)
+        rule_reason = self._rule_based_bot_check(feat, num_points, total_time_ms)
         if rule_reason:
             result = {
                 "pass": False,
