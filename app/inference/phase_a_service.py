@@ -129,8 +129,8 @@ class PhaseAInfer:
         if dt_entropy < th["dt_entropy_min"]:
             return f"dt_entropy={dt_entropy:.4f}"
         
-        # 4. 가속/감속 둘 다 없음 (등속 운동)
-        if end_decel < th["decel_accel_min"] and start_accel < th["decel_accel_min"]:
+        # 4. 가속/감속 둘 다 없음 (등속 운동) - 절대값으로 비교
+        if abs(end_decel) < th["decel_accel_min"] and abs(start_accel) < th["decel_accel_min"]:
             return f"no_accel_decel"
         
         return None
