@@ -40,6 +40,39 @@ def _import_extract_features():
 extract_features = _import_extract_features()
 
 
+def remove_pause_gaps(points: List[Dict[str, float]], pause_threshold_ms: float = 200.0) -> List[Dict[str, float]]:
+    """
+    멈춤 구간(pause_threshold_ms 이상의 시간 간격)을 제거하고 시간을 재조정.
+    
+    예: [0, 16, 32, 1200, 1216, 1232] (1200ms에서 멈춤)
+     → [0, 16, 32, 48, 64, 80] (멈춤 구간 제거, 시간 연속화)
+    """
+    if len(points) < 2:
+        return points
+    
+    result = [points[0].copy()]
+    result[0]["t"] = 0.0
+    
+    accumulated_time = 0.0
+    
+    for i in range(1, len(points)):
+        prev_t = float(points[i - 1].get("t", 0))
+        curr_t = float(points[i].get("t", 0))
+        dt = curr_t - prev_t
+        
+        # 멈춤 구간이면 시간 간격을 일반적인 값(16ms)으로 대체
+        if dt >= pause_threshold_ms:
+            dt = 16.0  # 일반적인 프레임 간격
+        
+        accumulated_time += dt
+        
+        new_point = points[i].copy()
+        new_point["t"] = accumulated_time
+        result.append(new_point)
+    
+    return result
+
+
 def coerce_points(payload: Dict[str, Any]) -> List[Dict[str, float]]:
     points = payload.get("points") or payload.get("trajectory") or payload.get("data")
     if not isinstance(points, list) or not points:
@@ -169,8 +202,11 @@ class PhaseAInfer:
                 result["threshold"] = self.threshold
             return result
         
+        # ⭐ 멈춤 구간 제거 전처리 (200ms 이상 gap 제거)
+        processed_points = remove_pause_gaps(points, pause_threshold_ms=200.0)
+        
         feat = extract_features(
-            points,
+            processed_points,  # 전처리된 포인트 사용
             line=None,
             sanitize_time=True,
             normalize_to_line=False,
