@@ -198,7 +198,7 @@ class PhaseBInfer:
             result["threshold"] = float(self.threshold)
 
         # 디버그 로그
-        logger.debug(f"[Phase B] human_prob={human_prob:.4f}, threshold={self.threshold}, pass={is_human}")
+        print(f"[Phase B] human_prob={human_prob:.4f}, threshold={self.threshold}, pass={is_human}")
 
         return result
 
@@ -209,23 +209,23 @@ class PhaseBInfer:
         return_score: bool = False,
         return_features: bool = False,
     ) -> Dict[str, Any]:
-        logger.debug(f"[Phase B] infer_from_payload 시작")
+        print(f"[Phase B] infer_from_payload 시작")
         
         if isinstance(payload, dict) and ("features" in payload):
             feats = coerce_features(payload)
-            logger.debug(f"[Phase B] features 직접 사용: {len(feats)}개")
+            print(f"[Phase B] features 직접 사용: {len(feats)}개")
         else:
             sample = coerce_sample(payload)
-            logger.debug(f"[Phase B] points에서 feature 추출: {len(sample['points'])}개 포인트")
+            print(f"[Phase B] points에서 feature 추출: {len(sample['points'])}개 포인트")
             
             feats = extract_features_from_drag(sample)
             if not feats:
                 raise ValueError("feature extraction failed (empty features)")
             
             # 주요 feature 로그
-            logger.debug(f"[Phase B] 추출된 features:")
+            print(f"[Phase B] 추출된 features:")
             for k, v in feats.items():
-                logger.debug(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
+                print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
 
         out = self.infer_human_bot(feats, return_score=return_score)
 
@@ -275,7 +275,7 @@ def save_phase_b_sample(
     tmp_path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp_path, out_path)
     
-    logger.debug(f"[Phase B] 샘플 저장: {out_path}")
+    print(f"[Phase B] 샘플 저장: {out_path}")
     return out_path
 
 
