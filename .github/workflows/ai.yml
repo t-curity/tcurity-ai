@@ -1,12 +1,7 @@
-# ============================================================
-# tcurity-ai 레포의 .github/workflows/ 에 복사
-# ============================================================
-name: Build & Deploy AI
+name: ai-ci-cd
 
 on:
   push:
-    branches: ["develop"]
-  pull_request:
     branches: ["develop"]
 
 permissions:
@@ -14,14 +9,12 @@ permissions:
   packages: write
 
 env:
-  REGISTRY: ghcr.io
   IMAGE: ghcr.io/t-curity/ai
 
 jobs:
-  build:
+  build-push-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      # 디스크 공간 확보 (대용량 모델 빌드용)
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -33,36 +26,28 @@ jobs:
 
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      
+
       - uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=sha,prefix=sha-
-            type=ref,event=branch
 
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:develop
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy:
-    needs: build
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: peter-evans/repository-dispatch@v2
+      - name: Trigger infra-deploy
+        uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ secrets.GHCR_TOKEN }}
+          token: ${{ secrets.INFRA_DEPLOY_TOKEN }}
           repository: t-curity/infra-deploy
-          event-type: deploy-ai
+          event-type: deploy
+          client-payload: |
+            {"service":"ai","tag":"sha-${{ github.sha }}"}
