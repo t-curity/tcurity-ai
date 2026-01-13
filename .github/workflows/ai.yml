@@ -46,7 +46,7 @@ jobs:
       - name: Trigger infra-deploy
         uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ secrets.INFRA_DEPLOY_TOKEN }}
+          token: ${{ secrets.GHCR_TOKEN }}
           repository: t-curity/infra-deploy
           event-type: deploy
           client-payload: |
