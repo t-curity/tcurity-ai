@@ -1,0 +1,12 @@
+# ==============================
+# Phase B - Image CAPTCHA
+# (EfficientNet / PyTorch)
+# ==============================
+
+torch
+torchvision
+mlflow
+numpy
+Pillow
+protobuf
+packaging

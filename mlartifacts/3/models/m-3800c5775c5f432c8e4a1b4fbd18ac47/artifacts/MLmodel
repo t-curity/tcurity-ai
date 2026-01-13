@@ -1,0 +1,22 @@
+artifact_path: /home/ubuntu/tcurity-ai/mlartifacts/3/models/m-3800c5775c5f432c8e4a1b4fbd18ac47/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.11.0
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.8.0
+mlflow_version: 3.7.0
+model_id: m-3800c5775c5f432c8e4a1b4fbd18ac47
+model_size_bytes: 2870832
+model_uuid: m-3800c5775c5f432c8e4a1b4fbd18ac47
+prompts: null
+run_id: d9a288901150438fa43102fd36471ae4
+utc_time_created: '2025-12-17 02:49:26.630713'

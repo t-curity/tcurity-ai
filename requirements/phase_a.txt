@@ -1,0 +1,12 @@
+# ==============================
+# Phase A - Behavior CAPTCHA
+# (Isolation Forest / sklearn)
+# ==============================
+
+numpy
+scikit-learn
+joblib
+mlflow
+matplotlib
+protobuf
+packaging
