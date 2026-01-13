@@ -26,6 +26,9 @@ from app.inference.phase_b_service import PhaseBInfer, save_phase_b_sample
 app = FastAPI()
 logger = logging.getLogger("uvicorn.error")
 
+from app.endpoints.test_endpoints import router as test_router
+app.include_router(test_router)
+
 # =====================================================
 # 서버 시작 시 1회 로드 (AI 모델들)
 # =====================================================
