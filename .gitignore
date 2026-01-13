@@ -60,3 +60,24 @@ models/*.joblib
 # ===============================
 .DS_Store
 Thumbs.db
+
+# MLflow artifacts
+mlartifacts/
+mlflow.db
+mlruns/
+
+# Model backups
+models/phase_a/backups/
+models/phase_a/*.bak
+models/phase_a/score_hist.png
+models/phase_a/false_rejects_human_test.json
+
+# Training temp files
+training/models/
+
+# Test scripts (로컬용)
+test_phase_b_bot.py
+test_phase_b_human.py
+
+# Keys
+*.pem
