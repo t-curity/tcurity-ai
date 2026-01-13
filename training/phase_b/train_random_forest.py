@@ -77,7 +77,9 @@ def resolve_out_path(root: Path, out_arg: str) -> Path:
 
 def load_dataset(root: Path, data_dir: Path, feature_names: List[str]) -> Tuple[np.ndarray, np.ndarray]:
     human_dir = data_dir / "human"
+    human_pred_dir = data_dir / "human_pred"
     bot_dir = data_dir / "bot"
+    bot_pred_dir = data_dir / "bot_pred"
 
     X: List[List[float]] = []
     y: List[int] = []
@@ -89,6 +91,11 @@ def load_dataset(root: Path, data_dir: Path, feature_names: List[str]) -> Tuple[
             s = load_json_first(fp)
             if not s:
                 continue
+            
+            # human_pred 구조 지원: behavior.points 추출
+            if "behavior" in s and isinstance(s["behavior"], dict):
+                s = s["behavior"]
+            
             feat = extract_features_from_drag(s)
             if not feat:
                 continue
@@ -96,13 +103,14 @@ def load_dataset(root: Path, data_dir: Path, feature_names: List[str]) -> Tuple[
             y.append(label)
 
     ingest(human_dir, 1)
+    ingest(human_pred_dir, 1)
     ingest(bot_dir, 0)
+    ingest(bot_pred_dir, 0)
 
     if not X:
         raise RuntimeError(f"No valid samples under: {data_dir}")
 
     return np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.int32)
-
 
 def main():
     ap = argparse.ArgumentParser()

@@ -1,0 +1,31 @@
+artifact_path: /home/ubuntu/tcurity-ai/mlartifacts/1/models/m-bd458b469913404cb914c62659f3fe3b/artifacts
+flavors:
+  python_function:
+    config:
+      device: null
+    data: data
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.pytorch
+    pickle_module_name: mlflow.pytorch.pickle_module
+    python_version: 3.10.12
+  pytorch:
+    code: null
+    model_data: data
+    pytorch_version: 2.9.1+cu128
+is_signature_from_type_hint: false
+mlflow_version: 3.7.0
+model_id: m-bd458b469913404cb914c62659f3fe3b
+model_size_bytes: 16416687
+model_uuid: m-bd458b469913404cb914c62659f3fe3b
+prompts: null
+run_id: 66a29cc247d14f1cbd4becbd7da027de
+signature:
+  inputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float32", "shape": [-1, 3,
+    128, 128]}}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float32", "shape": [-1,
+    10]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2025-12-12 05:16:10.512035'
