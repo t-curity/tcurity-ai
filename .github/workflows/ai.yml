@@ -48,6 +48,6 @@ jobs:
         with:
           token: ${{ secrets.GHCR_TOKEN }}
           repository: t-curity/infra-deploy
-          event-type: deploy
+          event-type: deploy-ai
           client-payload: |
             {"service":"ai","tag":"sha-${{ github.sha }}"}
