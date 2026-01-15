@@ -1,24 +1,36 @@
-# tcurity-ai/training/phase_b/feature_extractor.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+[feature_extractor_v2.py] - 고급 Feature 추가 버전
+
+기존 14개 feature + 새로운 12개 feature = 총 26개
+
+새로 추가된 feature:
+- acceleration_mean: 평균 가속도
+- acceleration_std: 가속도 표준편차
+- jerk_mean: 평균 jerk (가속도의 변화율)
+- jerk_std: jerk 표준편차
+- curvature_mean: 평균 곡률
+- curvature_std: 곡률 표준편차
+- angular_velocity_mean: 평균 각속도
+- angular_velocity_std: 각속도 표준편차
+- velocity_autocorr: 속도 자기상관 (연속성)
+- straightness: 직진성 (straight_distance / path_length)
+- max_deviation: 최대 이탈 거리
+- pause_ratio: 멈춤 비율 (dt > threshold인 구간)
+"""
+
 from __future__ import annotations
 
 import math
-from statistics import mean, pstdev
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Optional, Any
+
+DEFAULT_GAP_MS = 300  # idle time 기준
 
 
-# ------------------------------------------------------------
-# Config
-# ------------------------------------------------------------
-DEFAULT_GAP_MS = 250          # dt가 이 이상이면 다른 드래그로 간주
-DEFAULT_JUMP_DIST = 0.25      # 정규화 좌표에서 이 이상 점프하면 다른 드래그로 간주
-
-DIR_CHANGE_DEG = 45.0         # 방향 변화 카운트 임계값 (deg)
-MICRO_PAUSE_FACTOR = 2.0      # avg_dt의 몇 배 이상이면 micro pause로 간주
-
-
-# ------------------------------------------------------------
-# Feature name presets (train에서 그대로 쓰기 좋게)
-# ------------------------------------------------------------
+# ============================================================
+# 기존 14개 Feature (FEATURES_BEHAVIOR_14)
+# ============================================================
 FEATURES_BEHAVIOR_14 = [
     "drag_duration",
     "avg_dt",
@@ -36,203 +48,337 @@ FEATURES_BEHAVIOR_14 = [
     "idle_time_std",
 ]
 
+# ============================================================
+# 새로운 12개 Feature
+# ============================================================
+FEATURES_ADVANCED_12 = [
+    "acceleration_mean",
+    "acceleration_std",
+    "jerk_mean",
+    "jerk_std",
+    "curvature_mean",
+    "curvature_std",
+    "angular_velocity_mean",
+    "angular_velocity_std",
+    "velocity_autocorr",
+    "straightness",
+    "max_deviation",
+    "pause_ratio",
+]
+
+# 전체 26개 Feature
+FEATURES_ALL_26 = FEATURES_BEHAVIOR_14 + FEATURES_ADVANCED_12
+
+# 결과 포함 버전 (28개)
 FEATURES_WITH_RESULT_16 = FEATURES_BEHAVIOR_14 + ["correct_count", "is_perfect"]
+FEATURES_WITH_RESULT_28 = FEATURES_ALL_26 + ["correct_count", "is_perfect"]
 
 
-# ------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------
-def _f(v: Any, default: float = 0.0) -> float:
-    try:
-        return float(v)
-    except Exception:
-        return default
-
-
-def _i(v: Any, default: int = 0) -> int:
-    try:
-        return int(v)
-    except Exception:
-        return default
-
-
-def _dist(a: Tuple[float, float], b: Tuple[float, float]) -> float:
-    return math.hypot(a[0] - b[0], a[1] - b[1])
-
-
-def _angle_deg(a: Tuple[float, float], b: Tuple[float, float], c: Tuple[float, float]) -> float:
-    """angle at point b between segment ba and bc"""
-    ba = (a[0] - b[0], a[1] - b[1])
-    bc = (c[0] - b[0], c[1] - b[1])
-
-    dot = ba[0] * bc[0] + ba[1] * bc[1]
-    mag = math.hypot(*ba) * math.hypot(*bc)
-    if mag == 0:
+def _safe_std(values: List[float]) -> float:
+    if len(values) < 2:
         return 0.0
+    mean_val = sum(values) / len(values)
+    variance = sum((x - mean_val) ** 2 for x in values) / (len(values) - 1)
+    return math.sqrt(max(0, variance))
 
-    cosv = max(-1.0, min(1.0, dot / mag))
-    return math.degrees(math.acos(cosv))
+
+def _safe_mean(values: List[float]) -> float:
+    if not values:
+        return 0.0
+    return sum(values) / len(values)
 
 
-def _segment_points(
-    points: List[dict],
-    gap_ms: int = DEFAULT_GAP_MS,
-    jump_dist: float = DEFAULT_JUMP_DIST,
-) -> List[List[dict]]:
+def _distance(p1: Dict, p2: Dict) -> float:
+    x1, y1 = float(p1.get("x", 0)), float(p1.get("y", 0))
+    x2, y2 = float(p2.get("x", 0)), float(p2.get("y", 0))
+    return math.hypot(x2 - x1, y2 - y1)
+
+
+def _angle(p1: Dict, p2: Dict) -> float:
+    """두 점 사이의 각도 (라디안)"""
+    x1, y1 = float(p1.get("x", 0)), float(p1.get("y", 0))
+    x2, y2 = float(p2.get("x", 0)), float(p2.get("y", 0))
+    return math.atan2(y2 - y1, x2 - x1)
+
+
+def _angle_diff(a1: float, a2: float) -> float:
+    """두 각도 차이 (-pi ~ pi)"""
+    diff = a2 - a1
+    while diff > math.pi:
+        diff -= 2 * math.pi
+    while diff < -math.pi:
+        diff += 2 * math.pi
+    return diff
+
+
+def _point_to_line_distance(point: Dict, line_start: Dict, line_end: Dict) -> float:
+    """점에서 직선까지의 거리"""
+    px, py = float(point.get("x", 0)), float(point.get("y", 0))
+    x1, y1 = float(line_start.get("x", 0)), float(line_start.get("y", 0))
+    x2, y2 = float(line_end.get("x", 0)), float(line_end.get("y", 0))
+    
+    # 직선의 길이
+    line_len = math.hypot(x2 - x1, y2 - y1)
+    if line_len < 1e-9:
+        return math.hypot(px - x1, py - y1)
+    
+    # 점에서 직선까지 수직 거리
+    dist = abs((y2 - y1) * px - (x2 - x1) * py + x2 * y1 - y2 * x1) / line_len
+    return dist
+
+
+def _autocorrelation(values: List[float], lag: int = 1) -> float:
+    """자기상관 계산"""
+    if len(values) <= lag:
+        return 0.0
+    
+    mean_val = _safe_mean(values)
+    n = len(values)
+    
+    numerator = sum((values[i] - mean_val) * (values[i + lag] - mean_val) 
+                    for i in range(n - lag))
+    denominator = sum((v - mean_val) ** 2 for v in values)
+    
+    if denominator < 1e-9:
+        return 0.0
+    
+    return numerator / denominator
+
+
+def extract_features_v2(sample: dict, include_advanced: bool = True) -> Optional[Dict[str, float]]:
     """
-    points를 드래그(세그먼트) 단위로 분리.
-    - dt가 너무 크거나, 좌표 점프가 크면 새로운 세그먼트 시작
+    고급 feature 포함 추출
+    
+    Args:
+        sample: JSON 데이터
+        include_advanced: True면 26개, False면 14개 feature
+    
+    Returns:
+        feature dictionary
     """
-    if not points or len(points) < 2:
-        return []
-
-    segs: List[List[dict]] = []
-    cur: List[dict] = [points[0]]
-
-    for p in points[1:]:
-        prev = cur[-1]
-
-        px, py = _f(prev.get("x")), _f(prev.get("y"))
-        pt = _i(prev.get("t"))
-        x, y = _f(p.get("x")), _f(p.get("y"))
-        t = _i(p.get("t"))
-
-        dt = t - pt
-        jump = _dist((px, py), (x, y))
-
-        if dt >= gap_ms or jump >= jump_dist:
-            segs.append(cur)
-            cur = [p]
+    # points 추출
+    points = sample.get("points", [])
+    if not points and "behavior" in sample:
+        behavior = sample.get("behavior", {})
+        if isinstance(behavior, dict):
+            points = behavior.get("points", [])
+    
+    if not points or len(points) < 3:
+        return None
+    
+    # 시간 정렬
+    try:
+        points = sorted(points, key=lambda p: int(p.get("t", 0)))
+    except:
+        return None
+    
+    # ============================================================
+    # 기본 계산
+    # ============================================================
+    n = len(points)
+    t_start = int(points[0].get("t", 0))
+    t_end = int(points[-1].get("t", 0))
+    
+    session_duration = max(1, t_end - t_start)
+    
+    # dt, distance, speed 계산
+    dts = []
+    distances = []
+    speeds = []
+    angles = []
+    
+    for i in range(1, n):
+        dt = int(points[i].get("t", 0)) - int(points[i-1].get("t", 0))
+        dt = max(1, dt)
+        dts.append(dt)
+        
+        d = _distance(points[i-1], points[i])
+        distances.append(d)
+        
+        speed = d / (dt / 1000.0)  # pixels per second
+        speeds.append(speed)
+        
+        angle = _angle(points[i-1], points[i])
+        angles.append(angle)
+    
+    # path length, straight distance
+    path_length = sum(distances) if distances else 0.0
+    straight_distance = _distance(points[0], points[-1])
+    path_efficiency = straight_distance / max(path_length, 1e-9)
+    path_efficiency = min(1.0, path_efficiency)
+    
+    # direction changes
+    direction_changes = 0
+    for i in range(1, len(angles)):
+        if abs(_angle_diff(angles[i-1], angles[i])) > math.pi / 4:
+            direction_changes += 1
+    
+    # micro pause count
+    micro_pause_count = sum(1 for dt in dts if dt > 50)
+    
+    # segment 분리 (idle time 기준)
+    segments = []
+    current_seg = [points[0]]
+    idle_times = []
+    
+    for i in range(1, n):
+        dt = int(points[i].get("t", 0)) - int(points[i-1].get("t", 0))
+        if dt > DEFAULT_GAP_MS:
+            if len(current_seg) > 1:
+                segments.append(current_seg)
+            idle_times.append(dt)
+            current_seg = [points[i]]
         else:
-            cur.append(p)
-
-    if cur:
-        segs.append(cur)
-
-    # 길이 2 미만 세그먼트 제거
-    segs = [s for s in segs if len(s) >= 2]
-    return segs
-
-
-def _segment_stats(seg: List[dict]) -> Dict[str, Any]:
-    """세그먼트 1개(드래그 1회)에 대한 통계"""
-    coords = [(_f(p.get("x")), _f(p.get("y"))) for p in seg]
-    times = [_i(p.get("t")) for p in seg]
-
-    dts = [times[i + 1] - times[i] for i in range(len(times) - 1)]
-    steps = [_dist(coords[i], coords[i + 1]) for i in range(len(coords) - 1)]
-
-    duration = times[-1] - times[0]
-    path_len = sum(steps)
-    straight = _dist(coords[0], coords[-1])
-    eff = (straight / path_len) if path_len > 0 else 0.0
-
-    speeds = [steps[i] / dts[i] for i in range(len(steps)) if dts[i] > 0]
-
-    # 방향 변화
-    dir_changes = 0
-    for i in range(1, len(coords) - 1):
-        if _angle_deg(coords[i - 1], coords[i], coords[i + 1]) > DIR_CHANGE_DEG:
-            dir_changes += 1
-
-    return {
-        "duration": float(duration),
-        "path_length": float(path_len),
-        "straight_distance": float(straight),
-        "eff": float(eff),
-        "dir_changes": float(dir_changes),
-        "dts": dts,
-        "speeds": speeds,
-    }
-
-
-def extract_features_from_drag(sample: dict) -> Dict[str, float]:
-    """
-    collector json(sample)에서 points를 읽고 특징 추출
-    반환 키들은 train_random_forest.py에서 그대로 사용 가능
-    """
-    points = sample.get("points") or []
-    if not isinstance(points, list) or len(points) < 2:
-        return {}
-
-    # 정답 관련 (MVP에서는 모델 입력에서 제외 권장)
-    correct_count = _f(sample.get("correct_count", 0))
-    is_perfect = 1.0 if bool(sample.get("is_perfect", False)) else 0.0
-
-    # 세그먼트 분리
-    segs = _segment_points(points, DEFAULT_GAP_MS, DEFAULT_JUMP_DIST)
-    if not segs:
-        segs = [points]  # fallback
-
-    seg_stats = [_segment_stats(s) for s in segs]
-
-    # 전체 dt/speed 풀 (세그먼트 내부만)
-    all_dts: List[int] = []
-    all_speeds: List[float] = []
-    for st in seg_stats:
-        all_dts.extend(st["dts"])
-        all_speeds.extend(st["speeds"])
-
-    # ---- time features (active drag)
-    drag_duration = sum(st["duration"] for st in seg_stats)
-
-    avg_dt = mean(all_dts) if all_dts else 0.0
-    dt_std = pstdev(all_dts) if len(all_dts) >= 2 else 0.0
-
-    # ---- geometry features
-    path_length = sum(st["path_length"] for st in seg_stats)
-    straight_distance = sum(st["straight_distance"] for st in seg_stats)
-    path_efficiency = (straight_distance / path_length) if path_length > 0 else 0.0
-
-    # ---- speed features
-    avg_speed = (path_length / drag_duration) if drag_duration > 0 else 0.0
-    speed_std = pstdev(all_speeds) if len(all_speeds) >= 2 else 0.0
-
-    # ---- direction
-    direction_changes = sum(st["dir_changes"] for st in seg_stats)
-
-    # ---- micro pause count (세그먼트 내부 dt 기반)
-    micro_pause_count = 0
-    if all_dts and avg_dt > 0:
-        thr = avg_dt * MICRO_PAUSE_FACTOR
-        micro_pause_count = sum(1 for d in all_dts if d >= thr)
-
-    # ---- session features (including idle gaps between segments)
-    # session_duration: first point t ~ last point t
-    t0 = _i(points[0].get("t"))
-    t1 = _i(points[-1].get("t"))
-    session_duration = float(max(0, t1 - t0))
-
-    # idle gaps between segments: (next_seg_start - prev_seg_end) - 0 (>=0)
-    idle_gaps: List[int] = []
-    for a, b in zip(segs[:-1], segs[1:]):
-        ta = _i(a[-1].get("t"))
-        tb = _i(b[0].get("t"))
-        idle = tb - ta
-        if idle >= 0:
-            idle_gaps.append(idle)
-
-    idle_mean = mean(idle_gaps) if idle_gaps else 0.0
-    idle_std = pstdev(idle_gaps) if len(idle_gaps) >= 2 else 0.0
-
-    return {
-        # 행동+세션 (MVP 기본 입력으로 추천)
+            current_seg.append(points[i])
+    
+    if len(current_seg) > 1:
+        segments.append(current_seg)
+    
+    drag_count = max(1, len(segments))
+    
+    # idle time stats
+    idle_time_mean = _safe_mean(idle_times) if idle_times else 0.0
+    idle_time_std = _safe_std(idle_times) if idle_times else 0.0
+    
+    # drag duration (idle 제외)
+    drag_duration = session_duration - sum(idle_times)
+    drag_duration = max(1, drag_duration)
+    
+    # ============================================================
+    # 기본 14개 Feature
+    # ============================================================
+    feat = {
         "drag_duration": float(drag_duration),
-        "avg_dt": float(avg_dt),
-        "dt_std": float(dt_std),
-        "path_length": float(path_length),
-        "straight_distance": float(straight_distance),
-        "path_efficiency": float(path_efficiency),
-        "avg_speed": float(avg_speed),
-        "speed_std": float(speed_std),
+        "avg_dt": _safe_mean(dts),
+        "dt_std": _safe_std(dts),
+        "path_length": path_length,
+        "straight_distance": straight_distance,
+        "path_efficiency": path_efficiency,
+        "avg_speed": _safe_mean(speeds),
+        "speed_std": _safe_std(speeds),
         "direction_changes": float(direction_changes),
         "micro_pause_count": float(micro_pause_count),
-        "drag_count": float(len(segs)),
+        "drag_count": float(drag_count),
         "session_duration": float(session_duration),
-        "idle_time_mean": float(idle_mean),
-        "idle_time_std": float(idle_std),
-
-        # 결과 기반(비권장: 모델 입력에서 보통 제외)
-        "correct_count": float(correct_count),
-        "is_perfect": float(is_perfect),
+        "idle_time_mean": idle_time_mean,
+        "idle_time_std": idle_time_std,
     }
+    
+    if not include_advanced:
+        return feat
+    
+    # ============================================================
+    # 고급 12개 Feature
+    # ============================================================
+    
+    # 1. Acceleration (가속도)
+    accelerations = []
+    for i in range(1, len(speeds)):
+        dt = dts[i] / 1000.0  # seconds
+        if dt > 0:
+            acc = (speeds[i] - speeds[i-1]) / dt
+            accelerations.append(acc)
+    
+    feat["acceleration_mean"] = _safe_mean(accelerations)
+    feat["acceleration_std"] = _safe_std(accelerations)
+    
+    # 2. Jerk (가속도의 변화율)
+    jerks = []
+    for i in range(1, len(accelerations)):
+        dt = dts[i+1] / 1000.0 if i+1 < len(dts) else 0.016
+        if dt > 0:
+            jerk = (accelerations[i] - accelerations[i-1]) / dt
+            jerks.append(jerk)
+    
+    feat["jerk_mean"] = _safe_mean(jerks)
+    feat["jerk_std"] = _safe_std(jerks)
+    
+    # 3. Curvature (곡률)
+    curvatures = []
+    for i in range(1, len(angles)):
+        # 곡률 = 각도 변화 / 이동 거리
+        angle_diff = abs(_angle_diff(angles[i-1], angles[i]))
+        dist = distances[i] if i < len(distances) else 0.001
+        if dist > 1e-6:
+            curvature = angle_diff / dist
+            curvatures.append(curvature)
+    
+    feat["curvature_mean"] = _safe_mean(curvatures)
+    feat["curvature_std"] = _safe_std(curvatures)
+    
+    # 4. Angular Velocity (각속도)
+    angular_velocities = []
+    for i in range(1, len(angles)):
+        dt = dts[i] / 1000.0 if i < len(dts) else 0.016
+        if dt > 0:
+            angle_diff = _angle_diff(angles[i-1], angles[i])
+            angular_vel = angle_diff / dt
+            angular_velocities.append(angular_vel)
+    
+    feat["angular_velocity_mean"] = _safe_mean(angular_velocities)
+    feat["angular_velocity_std"] = _safe_std(angular_velocities)
+    
+    # 5. Velocity Autocorrelation (속도 연속성)
+    feat["velocity_autocorr"] = _autocorrelation(speeds, lag=1)
+    
+    # 6. Straightness (직진성)
+    feat["straightness"] = path_efficiency  # 이미 계산됨
+    
+    # 7. Max Deviation (최대 이탈 거리)
+    max_deviation = 0.0
+    if len(points) >= 2:
+        for p in points:
+            dev = _point_to_line_distance(p, points[0], points[-1])
+            max_deviation = max(max_deviation, dev)
+    
+    feat["max_deviation"] = max_deviation
+    
+    # 8. Pause Ratio (멈춤 비율)
+    pause_threshold = 40  # ms
+    pause_count = sum(1 for dt in dts if dt > pause_threshold)
+    feat["pause_ratio"] = pause_count / max(1, len(dts))
+    
+    return feat
+
+
+def extract_features_from_drag(sample: dict, include_advanced: bool = True) -> Optional[Dict[str, float]]:
+    """
+    기존 함수명 호환 - extract_features_v2 호출
+    """
+    return extract_features_v2(sample, include_advanced)
+
+
+# ============================================================
+# 테스트
+# ============================================================
+if __name__ == "__main__":
+    # 테스트 데이터
+    test_sample = {
+        "points": [
+            {"x": 0.1, "y": 0.1, "t": 0},
+            {"x": 0.15, "y": 0.12, "t": 20},
+            {"x": 0.2, "y": 0.15, "t": 45},
+            {"x": 0.28, "y": 0.18, "t": 70},
+            {"x": 0.35, "y": 0.2, "t": 100},
+            {"x": 0.4, "y": 0.22, "t": 150},
+            {"x": 0.5, "y": 0.25, "t": 200},
+        ]
+    }
+    
+    feat = extract_features_v2(test_sample, include_advanced=True)
+    
+    print("=" * 50)
+    print("Feature Extractor V2 Test")
+    print("=" * 50)
+    
+    if feat:
+        print(f"\nTotal features: {len(feat)}")
+        print("\n[Basic 14 Features]")
+        for key in FEATURES_BEHAVIOR_14:
+            print(f"  {key}: {feat.get(key, 0):.4f}")
+        
+        print("\n[Advanced 12 Features]")
+        for key in FEATURES_ADVANCED_12:
+            print(f"  {key}: {feat.get(key, 0):.4f}")
+    else:
+        print("Failed to extract features")
