@@ -95,7 +95,6 @@ def resolve_out_path(root: Path, out_arg: str) -> Path:
 def load_dataset(root: Path, data_dir: Path, feature_names: List[str]) -> Tuple[np.ndarray, np.ndarray]:
     human_dir = data_dir / "human"
     human_pred_dir = data_dir / "human_pred"
-    bot_dir = data_dir / "bot"
     bot_pred_dir = data_dir / "bot_pred"
 
     X: List[List[float]] = []
