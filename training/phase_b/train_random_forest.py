@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -14,11 +16,26 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.metrics import classification_report, roc_auc_score
 
+import mlflow
+import mlflow.sklearn
+
 from training.phase_b.feature_extractor import (
     extract_features_from_drag,
     FEATURES_BEHAVIOR_14,
     FEATURES_WITH_RESULT_16,
 )
+
+
+# ------------------------------------------------------------
+# MLflow 설정
+# ------------------------------------------------------------
+def _to_tracking_uri(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return "file://" + str(Path("mlruns").resolve())
+    if s.lower().startswith(("file:", "sqlite:", "http://", "https://", "databricks")):
+        return s
+    return s
 
 
 # ------------------------------------------------------------
@@ -112,6 +129,7 @@ def load_dataset(root: Path, data_dir: Path, feature_names: List[str]) -> Tuple[
 
     return np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.int32)
 
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", type=str, default="data/phase_b")
@@ -129,6 +147,12 @@ def main():
     ap.add_argument("--n-estimators", type=int, default=500)
     ap.add_argument("--max-depth", type=int, default=18)
     ap.add_argument("--min-samples-leaf", type=int, default=2)
+    
+    # MLflow 설정
+    ap.add_argument("--experiment", type=str, default=None, help="MLflow experiment name")
+    ap.add_argument("--run-name", type=str, default=None, help="MLflow run name")
+    ap.add_argument("--dataset-version", type=str, default=None, help="Dataset version tag")
+    
     args = ap.parse_args()
 
     root = Path(__file__).resolve().parents[2]  # tcurity-ai
@@ -138,6 +162,23 @@ def main():
 
     feature_names = FEATURES_WITH_RESULT_16 if args.use_result_features else FEATURES_BEHAVIOR_14
 
+    # MLflow 설정
+    tracking_uri = _to_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", ""))
+    experiment_name = args.experiment or os.environ.get("MLFLOW_EXPERIMENT_NAME") or "captcha-phase-b"
+    run_name = args.run_name or f"phaseB_rf_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    dataset_version = args.dataset_version or os.environ.get("DATASET_VERSION") or "dev"
+
+    print("=" * 60)
+    print("[Phase B] Random Forest Training")
+    print("=" * 60)
+    print(f"[data_dir]         {data_dir}")
+    print(f"[out_path]         {out_path}")
+    print(f"[mlflow]           {tracking_uri}")
+    print(f"[experiment]       {experiment_name}")
+    print(f"[dataset_version]  {dataset_version}")
+    print()
+
+    # 데이터 로드
     X, y = load_dataset(root, data_dir, feature_names)
 
     # split: train / (val+test)
@@ -156,73 +197,129 @@ def main():
     X_val, y_val = X_temp[val_idx], y_temp[val_idx]
     X_test, y_test = X_temp[test_idx], y_temp[test_idx]
 
-    clf = RandomForestClassifier(
-        n_estimators=args.n_estimators,
-        random_state=args.seed,
-        class_weight="balanced",
-        min_samples_leaf=args.min_samples_leaf,
-        max_depth=args.max_depth,
-        n_jobs=-1,
-        max_features="sqrt",
-    )
-    clf.fit(X_train, y_train)
+    # MLflow 시작
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment_name)
 
-    # Calib threshold on VAL using human-pass target
-    p_val = clf.predict_proba(X_val)[:, 1]  # prob(human)
-    thr = human_pass_threshold(p_val[y_val == 1], args.target_human_pass)
+    with mlflow.start_run(run_name=run_name):
+        # Tags
+        mlflow.set_tag("phase", "B")
+        mlflow.set_tag("model_name", "random_forest")
+        mlflow.set_tag("dataset_version", dataset_version)
+        mlflow.set_tag("use_result_features", str(args.use_result_features))
 
-    # Evaluate on TEST
-    p_test = clf.predict_proba(X_test)[:, 1]
-    y_pred = (p_test >= thr).astype(int)
+        # 모델 학습
+        clf = RandomForestClassifier(
+            n_estimators=args.n_estimators,
+            random_state=args.seed,
+            class_weight="balanced",
+            min_samples_leaf=args.min_samples_leaf,
+            max_depth=args.max_depth,
+            n_jobs=-1,
+            max_features="sqrt",
+        )
+        clf.fit(X_train, y_train)
 
-    def pass_rate(scores: np.ndarray, thr_: float) -> float:
-        return float(np.mean(scores >= thr_)) if scores.size else 0.0
+        # Calib threshold on VAL using human-pass target
+        p_val = clf.predict_proba(X_val)[:, 1]  # prob(human)
+        thr = human_pass_threshold(p_val[y_val == 1], args.target_human_pass)
 
-    human_pass = pass_rate(p_test[y_test == 1], thr)
-    bot_pass = pass_rate(p_test[y_test == 0], thr)
+        # Evaluate on TEST
+        p_test = clf.predict_proba(X_test)[:, 1]
+        y_pred = (p_test >= thr).astype(int)
 
-    try:
-        auc = float(roc_auc_score(y_test, p_test))
-    except Exception:
-        auc = float("nan")
+        def pass_rate(scores: np.ndarray, thr_: float) -> float:
+            return float(np.mean(scores >= thr_)) if scores.size else 0.0
 
-    print("\n[Dataset]")
-    print(f"total={len(y)} human={int(np.sum(y==1))} bot={int(np.sum(y==0))}")
-    print(f"train={len(y_train)} val={len(y_val)} test={len(y_test)}")
-    print(f"features={len(feature_names)} use_result_features={args.use_result_features}")
+        human_pass = pass_rate(p_test[y_test == 1], thr)
+        bot_pass = pass_rate(p_test[y_test == 0], thr)
+        bot_block = 1.0 - bot_pass  # 봇 차단율
 
-    print(f"\n[Calib] target_human_pass={args.target_human_pass:.3f} -> threshold={thr:.6f}")
-    print("\n[Test @ threshold]")
-    print(f"human_pass={human_pass:.4f}")
-    print(f"bot_pass  ={bot_pass:.4f} (lower is better)")
-    print(f"ROC-AUC   ={auc:.4f}")
+        try:
+            auc = float(roc_auc_score(y_test, p_test))
+        except Exception:
+            auc = float("nan")
 
-    print("\n[Feature Importance]")
-    imps = clf.feature_importances_
-    for name, imp in sorted(zip(feature_names, imps), key=lambda x: x[1], reverse=True):
-        print(f"{name:24s}: {imp:.4f}")
+        # MLflow Params 기록
+        mlflow.log_params({
+            "n_estimators": args.n_estimators,
+            "max_depth": args.max_depth,
+            "min_samples_leaf": args.min_samples_leaf,
+            "target_human_pass": args.target_human_pass,
+            "seed": args.seed,
+            "val_size": args.val_size,
+            "test_size": args.test_size,
+            "num_features": len(feature_names),
+            "use_result_features": args.use_result_features,
+        })
 
-    print("\n[Classification Report @ threshold]")
-    print(classification_report(y_test, y_pred, target_names=["bot", "human"]))
+        # MLflow Metrics 기록
+        mlflow.log_metrics({
+            "human_pass": human_pass,
+            "bot_pass": bot_pass,
+            "bot_block": bot_block,
+            "roc_auc": auc,
+            "threshold": thr,
+            "total_samples": len(y),
+            "human_samples": int(np.sum(y == 1)),
+            "bot_samples": int(np.sum(y == 0)),
+            "train_size": len(y_train),
+            "val_size": len(y_val),
+            "test_size": len(y_test),
+        })
 
-    payload = {
-        "model_type": "RandomForestClassifier",
-        "model": clf,
-        "threshold": float(thr),
-        "feature_names": feature_names,
-        "target_human_pass": float(args.target_human_pass),
-        "use_result_features": bool(args.use_result_features),
-    }
+        # Feature Importance 기록
+        imps = clf.feature_importances_
+        for name, imp in zip(feature_names, imps):
+            mlflow.log_metric(f"feat_imp_{name}", float(imp))
 
-    # Save
-    try:
-        import joblib
-        joblib.dump(payload, out_path)
-    except Exception:
-        import pickle
-        out_path.write_bytes(pickle.dumps(payload))
+        # 콘솔 출력
+        print("\n[Dataset]")
+        print(f"total={len(y)} human={int(np.sum(y==1))} bot={int(np.sum(y==0))}")
+        print(f"train={len(y_train)} val={len(y_val)} test={len(y_test)}")
+        print(f"features={len(feature_names)} use_result_features={args.use_result_features}")
 
-    print(f"\nSaved: {out_path}")
+        print(f"\n[Calib] target_human_pass={args.target_human_pass:.3f} -> threshold={thr:.6f}")
+        print("\n[Test @ threshold]")
+        print(f"human_pass={human_pass:.4f}")
+        print(f"bot_pass  ={bot_pass:.4f} (lower is better)")
+        print(f"bot_block ={bot_block:.4f}")
+        print(f"ROC-AUC   ={auc:.4f}")
+
+        print("\n[Feature Importance]")
+        for name, imp in sorted(zip(feature_names, imps), key=lambda x: x[1], reverse=True):
+            print(f"{name:24s}: {imp:.4f}")
+
+        print("\n[Classification Report @ threshold]")
+        report = classification_report(y_test, y_pred, target_names=["bot", "human"])
+        print(report)
+
+        # 모델 저장
+        payload = {
+            "model_type": "RandomForestClassifier",
+            "model": clf,
+            "threshold": float(thr),
+            "feature_names": feature_names,
+            "target_human_pass": float(args.target_human_pass),
+            "use_result_features": bool(args.use_result_features),
+        }
+
+        try:
+            import joblib
+            joblib.dump(payload, out_path)
+        except Exception:
+            import pickle
+            out_path.write_bytes(pickle.dumps(payload))
+
+        print(f"\nSaved: {out_path}")
+
+        # MLflow에 모델 및 아티팩트 기록
+        mlflow.sklearn.log_model(clf, artifact_path="random_forest_model")
+        mlflow.log_artifact(str(out_path))
+
+        print(f"\n[MLflow] Run logged to: {tracking_uri}")
+        print(f"[MLflow] Experiment: {experiment_name}")
+        print(f"[MLflow] Run name: {run_name}")
 
 
 if __name__ == "__main__":
