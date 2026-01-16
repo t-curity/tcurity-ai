@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-[feature_extractor_v2.py] - 고급 Feature 추가 버전
-
 기존 14개 feature + 새로운 12개 feature = 총 26개
 
 새로 추가된 feature:
@@ -145,7 +143,7 @@ def _autocorrelation(values: List[float], lag: int = 1) -> float:
     return numerator / denominator
 
 
-def extract_features_v2(sample: dict, include_advanced: bool = True) -> Optional[Dict[str, float]]:
+def extract_features(sample: dict, include_advanced: bool = True) -> Optional[Dict[str, float]]:
     """
     고급 feature 포함 추출
     
@@ -342,10 +340,7 @@ def extract_features_v2(sample: dict, include_advanced: bool = True) -> Optional
 
 
 def extract_features_from_drag(sample: dict, include_advanced: bool = True) -> Optional[Dict[str, float]]:
-    """
-    기존 함수명 호환 - extract_features_v2 호출
-    """
-    return extract_features_v2(sample, include_advanced)
+    return extract_features(sample, include_advanced)
 
 
 # ============================================================
@@ -365,7 +360,7 @@ if __name__ == "__main__":
         ]
     }
     
-    feat = extract_features_v2(test_sample, include_advanced=True)
+    feat = extract_features(test_sample, include_advanced=True)
     
     print("=" * 50)
     print("Feature Extractor V2 Test")

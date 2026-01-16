@@ -10,7 +10,7 @@ Isolation Forest 기반 드래그 봇 탐지 모델 학습 스크립트
 - 선택적으로 진단 파일 저장(SAVE_DIAGNOSTICS)
 
 권장 환경변수:
-  MLFLOW_TRACKING_URI=http://61.109.238.4:5000
+  MLFLOW_TRACKING_URI=
   MLFLOW_EXPERIMENT_NAME=captcha-phase-a
   DATA_COLLECTED_DIR=/home/ubuntu/tcurity-ai/data/drag_trainset       # 사람 드래그 json
   MODEL_OUTPUT_ROOT=/home/ubuntu/tcurity-ai/models/phase_a            # 최신모델 위치(고정)
