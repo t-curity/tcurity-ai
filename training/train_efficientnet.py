@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
 [train_efficientnet.py - EfficientNet-B0 모델 학습 스크립트]
 
 권장 환경변수:
-  MLFLOW_TRACKING_URI=http://61.109.238.4:5000
-  MLFLOW_EXPERIMENT_NAME=captcha-phase-b-image
-  IMAGE_DATA_ROOT=/data/images
-  MODEL_OUTPUT_ROOT=/models
-  DATASET_VERSION=v001 (선택)
+  MLFLOW_TRACKING_URI=http://61.109.238.4:5000                        # MLflow 서버 URI
+  PHASE_B_IMAGE_EXPERIMENT_NAME=phase-b-efficientnet                  # MLflow experiment 이름
+  PHASE_B_IMAGE_DATA_DIR=/data/images                                 # 학습 이미지 경로
+  PHASE_B_IMAGE_MODEL_DIR=/models/phase_b                             # 모델 저장 경로
+  PHASE_B_IMAGE_DATASET_VERSION=v001                                  # 데이터셋 버전 (선택)
 
 사용 예:
-  source .env/mlflow.env
-  source .env/phase_b.env
-
   python train_efficientnet.py
-  (or python train_efficientnet.py --batch_size 128 --learning_rate 0.0006 --epochs 50 --patience 5)
-
+  python train_efficientnet.py --batch_size 128 --learning_rate 0.0006 --epochs 50 --patience 5
 """
 
 import os
@@ -38,7 +33,6 @@ import mlflow.pytorch
 from mlflow.models.signature import infer_signature
 
 from captcha_dataset import CAPTCHADataset
-
 
 
 # ----------------------------
@@ -68,9 +62,9 @@ def main():
 
     # data/output: env fallback 허용
     parser.add_argument("--data_dir", type=str, default=None,
-                        help="학습 데이터(images) 경로 (예: ./images). 미지정 시 $IMAGE_DATA_ROOT/$DATA_DIR 사용")
+                        help="학습 데이터(images) 경로. 미지정 시 $PHASE_B_IMAGE_DATA_DIR 사용")
     parser.add_argument("--output_dir", type=str, default=None,
-                        help="모델 저장 폴더. 미지정 시 $MODEL_OUTPUT_ROOT/$MODEL_OUTPUT_DIR 사용")
+                        help="모델 저장 폴더. 미지정 시 $PHASE_B_IMAGE_MODEL_DIR 사용")
 
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
@@ -79,47 +73,58 @@ def main():
 
     # MLflow: env 기본 + 필요 시 override
     parser.add_argument("--experiment", type=str, default=None,
-                        help="MLflow experiment 이름. 미지정 시 $MLFLOW_EXPERIMENT_NAME 사용")
+                        help="MLflow experiment 이름. 미지정 시 $PHASE_B_IMAGE_EXPERIMENT_NAME 사용")
     parser.add_argument("--run_name", type=str, default=None,
                         help="MLflow run 이름. 미지정 시 자동 생성")
     parser.add_argument("--dataset_version", type=str, default=None,
-                        help="데이터셋 버전 태그 (예: v001). 미지정 시 $DATASET_VERSION 사용")
+                        help="데이터셋 버전 태그. 미지정 시 $PHASE_B_IMAGE_DATASET_VERSION 사용")
 
     args = parser.parse_args()
 
     # ------------------------
     # data/output resolve
     # ------------------------
-    data_dir = args.data_dir or os.environ.get("IMAGE_DATA_ROOT") or os.environ.get("DATA_DIR")
+    data_dir = (
+        args.data_dir
+        or os.environ.get("PHASE_B_IMAGE_DATA_DIR")
+        or os.environ.get("IMAGE_DATA_ROOT")  # 하위 호환
+    )
 
-    base_output_dir = (
+    output_dir = (
         args.output_dir
-        or os.environ.get("MODEL_OUTPUT_ROOT")
-        or os.environ.get("MODEL_OUTPUT_DIR")
-        or "./models"
+        or os.environ.get("PHASE_B_IMAGE_MODEL_DIR")
+        or os.environ.get("MODEL_OUTPUT_ROOT")  # 하위 호환
+        or "./models/phase_b"
     )
 
     if not data_dir:
-        raise ValueError("data_dir이 필요합니다. --data_dir 또는 $IMAGE_DATA_ROOT/$DATA_DIR 를 설정하세요.")
+        raise ValueError("data_dir이 필요합니다. --data_dir 또는 $PHASE_B_IMAGE_DATA_DIR 를 설정하세요.")
 
     data_dir = str(Path(data_dir).expanduser().resolve())
-
-    # 🔽 Phase B 전용 디렉토리
-    output_dir = Path(base_output_dir).expanduser().resolve() / "phase_b"
+    output_dir = Path(output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-
     model_save_path = output_dir / "best_model.pth"
 
     # ------------------------
     # MLflow 설정 (env 기반)
     # ------------------------
     tracking_uri = _get_tracking_uri()
-    experiment_name = args.experiment or os.environ.get("MLFLOW_EXPERIMENT_NAME") or "captcha-phase-b"
+    experiment_name = (
+        args.experiment
+        or os.environ.get("PHASE_B_IMAGE_EXPERIMENT_NAME")
+        or os.environ.get("MLFLOW_EXPERIMENT_NAME")  # 하위 호환
+        or "phase-b-efficientnet"
+    )
 
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
 
-    dataset_version = args.dataset_version or os.environ.get("DATASET_VERSION") or "dev"
+    dataset_version = (
+        args.dataset_version
+        or os.environ.get("PHASE_B_IMAGE_DATASET_VERSION")
+        or os.environ.get("DATASET_VERSION")  # 하위 호환
+        or "dev"
+    )
 
     run_name = args.run_name or f"effnetb0_lr{args.learning_rate}_bs{args.batch_size}_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
@@ -128,40 +133,32 @@ def main():
     # ------------------------
     train_transform = transforms.Compose([
         transforms.Resize((128, 128)),
-        
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomVerticalFlip(p=0.05),
-        
         transforms.RandomAffine(
             degrees=10,
             translate=(0.05, 0.05),
             scale=(0.9, 1.1)
         ),
-
         transforms.RandomPerspective(
             distortion_scale=0.15,
             p=0.25
         ),
-
         transforms.ColorJitter(
-        brightness=0.2,
+            brightness=0.2,
             contrast=0.2,
             saturation=0.15,
             hue=0.05
         ),
-
         transforms.RandomApply([
             transforms.GaussianBlur(3, (0.1, 1.0))
         ], p=0.3),
-
         transforms.RandomErasing(
             p=0.25,
             scale=(0.02, 0.1),
             ratio=(0.3, 3.3)
         ),
-
         transforms.ToTensor(),
-
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
             std=[0.229, 0.224, 0.225]
@@ -178,9 +175,16 @@ def main():
     # 데이터 로드
     # ------------------------
     print("=" * 60)
-    print("데이터셋 로드 중...")
+    print("Phase B Image - EfficientNet Training")
     print("=" * 60)
+    print(f"[data_dir]         {data_dir}")
+    print(f"[output_dir]       {output_dir}")
+    print(f"[mlflow]           {tracking_uri}")
+    print(f"[experiment]       {experiment_name}")
+    print(f"[dataset_version]  {dataset_version}")
+    print()
 
+    print("데이터셋 로드 중...")
     full_dataset = CAPTCHADataset(data_dir, transform=None)
 
     train_ratio = 0.8
@@ -193,21 +197,18 @@ def main():
     val_subset.dataset.transform = val_transform
 
     train_loader = DataLoader(
-    train_subset,
-    batch_size=args.batch_size,
-    shuffle=True,
-    num_workers=4,
-    pin_memory=True,
-    # persistent_workers=True
+        train_subset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
     )
-
     val_loader = DataLoader(
-    val_subset,
-    batch_size=args.batch_size,
-    shuffle=False,
-    num_workers=4,
-    pin_memory=True,
-    # persistent_workers=True
+        val_subset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
     )
 
     print(f"총 데이터: {total_size}개")
@@ -225,7 +226,6 @@ def main():
     print(f"사용 장치: {device}\n")
 
     model = models.efficientnet_b0(weights="IMAGENET1K_V1")
-
     NUM_CLASSES = len(set(full_dataset.labels))
     print(f"감지된 실제 클래스 수: {NUM_CLASSES}")
 
@@ -236,36 +236,32 @@ def main():
     # features 동결 + 일부만 fine-tuning
     for p in model.features.parameters():
         p.requires_grad = False
-    for p in model.features[-2:].parameters():
+    for p in model.features[-3:].parameters():
         p.requires_grad = True
 
     print(f"✅ EfficientNet-B0 로드 완료 ({NUM_CLASSES}개 클래스)")
-    print(f"   Fine-tuning: features[-2:] + classifier\n")
-    
-    # 1. 자동 계산
+    print(f"   Fine-tuning: features[-3:] + classifier\n")
+
+    # 클래스 가중치 계산
     class_counts_dict = Counter(full_dataset.labels)
     class_counts = torch.tensor(
         [class_counts_dict[i] for i in range(NUM_CLASSES)],
         dtype=torch.float
     )
-    # 2. 가중치 계산 (ChatGPT 방법)
+
     num_classes = len(class_counts)
     total_samples = class_counts.sum()
     class_weights = total_samples / (num_classes * class_counts)
-    class_weights = torch.clamp(class_weights, max=3.0)  # 과도한 영향 방지
+    class_weights = torch.clamp(class_weights, max=3.0)
 
     print("📊 클래스 가중치:")
     for i, w in enumerate(class_weights):
         print(f"  Class {i}: {w:.2f}x")
 
-    # 3. 손실함수 (가중치 적용)
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
 
-    # 기존 방식 - 가중치 균등화
-    # criterion = nn.CrossEntropyLoss(label_smoothing=0.1) 
-
     optimizer = torch.optim.AdamW([
-        {"params": model.features[-2:].parameters(), "lr": args.learning_rate * 0.05, "weight_decay": 1e-5},
+        {"params": model.features[-3:].parameters(), "lr": args.learning_rate * 0.05, "weight_decay": 1e-5},
         {"params": model.classifier.parameters(), "lr": args.learning_rate, "weight_decay": 1e-4},
     ])
 
@@ -289,16 +285,17 @@ def main():
     patience_counter = 0
 
     with mlflow.start_run(run_name=run_name):
-        # tags (Phase/모델 확장 대비)
+        # tags
         mlflow.set_tag("phase", "B")
         mlflow.set_tag("model_family", "cnn")
         mlflow.set_tag("model_name", "efficientnet_b0")
         mlflow.set_tag("dataset_version", dataset_version)
+        mlflow.set_tag("sub_type", "image")
 
         # params
         mlflow.log_param("run_name", run_name)
         mlflow.log_param("data_dir", data_dir)
-        mlflow.log_param("output_dir", output_dir)
+        mlflow.log_param("output_dir", str(output_dir))
         mlflow.log_param("batch_size", args.batch_size)
         mlflow.log_param("learning_rate", args.learning_rate)
         mlflow.log_param("epochs", args.epochs)
@@ -347,7 +344,6 @@ def main():
                     imgs, labels = imgs.to(device), labels.to(device)
                     outputs = model(imgs)
                     loss = criterion(outputs, labels)
-
                     val_loss += loss.item()
                     _, predicted = torch.max(outputs, 1)
                     val_total += labels.size(0)
@@ -357,6 +353,7 @@ def main():
             val_accuracy = val_correct / max(1, val_total)
 
             scheduler.step()
+
             epoch_time = time.time() - epoch_start
 
             print(f"[Epoch {epoch+1}/{args.epochs}]")
@@ -379,14 +376,13 @@ def main():
             if val_accuracy > best_accuracy:
                 best_accuracy = val_accuracy
                 patience_counter = 0
-
                 torch.save(model.state_dict(), model_save_path)
                 print(f"  ✅ 최고 모델 저장! (Val_Acc: {val_accuracy:.2%})")
-
                 _log_pytorch_model_compat(model, artifact_name="best_model", signature=signature)
             else:
                 patience_counter += 1
                 print(f"  ⏳ Patience: {patience_counter}/{args.patience}")
+
                 if patience_counter >= args.patience:
                     print("\n🛑 Early Stopping 발동!")
                     break
@@ -394,9 +390,10 @@ def main():
             print()
 
         mlflow.log_metric("best_val_acc", float(best_accuracy))
-        mlflow.log_artifact(model_save_path)
+        mlflow.log_artifact(str(model_save_path))
 
     end_total = time.time()
+
     print("=" * 60)
     print("학습 완료!")
     print(f"최고 검증 정확도: {best_accuracy:.2%}")

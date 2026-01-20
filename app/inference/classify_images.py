@@ -42,9 +42,14 @@ MODEL_PATH = PROJECT_ROOT / "models" / "phase_b" / "best_model.pth"
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
+# CLASSES: List[str] = [
+#     "Animals", "Birds", "Building", "Devices", "Fashion",
+#     "Food", "Instrument", "Nature", "Sports", "Vehicle",
+# ]
+
 CLASSES: List[str] = [
-    "Animals", "Birds", "Building", "Devices", "Fashion",
-    "Food", "Instrument", "Nature", "Sports", "Vehicle",
+    "Bird", "Building", "Car", "Cat", "Device",
+    "Dog", "Food", "Nature", "Sport", "Turtle",
 ]
 
 

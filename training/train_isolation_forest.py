@@ -7,16 +7,16 @@ train_isolation_forest.py
 Isolation Forest 기반 드래그 봇 탐지 모델 학습 스크립트
 - MLflow 환경변수 기반
 - 모델 산출물: 최신만 유지(고정 파일명 덮어쓰기) + atomic swap
-- 선택적으로 진단 파일 저장(SAVE_DIAGNOSTICS)
+- 선택적으로 진단 파일 저장(PHASE_A_SAVE_DIAGNOSTICS)
 
 권장 환경변수:
-  MLFLOW_TRACKING_URI=
-  MLFLOW_EXPERIMENT_NAME=captcha-phase-a
-  DATA_COLLECTED_DIR=/home/ubuntu/tcurity-ai/data/drag_trainset       # 사람 드래그 json
-  MODEL_OUTPUT_ROOT=/home/ubuntu/tcurity-ai/models/phase_a            # 최신모델 위치(고정)
-  DATASET_VERSION=v001                                                # 선택
-  SAVE_DIAGNOSTICS=0|1                                                # 선택(기본 0)
-  KEEP_BACKUPS=0|1|2|3...                                             # 선택(기본 0)
+  MLFLOW_TRACKING_URI=http://...:5000                                 # MLflow 서버 URI
+  PHASE_A_EXPERIMENT_NAME=phase-a-isolation-forest                    # MLflow experiment 이름
+  PHASE_A_DATA_DIR=/home/ubuntu/tcurity-ai/data/drag_trainset         # 사람 드래그 json
+  PHASE_A_MODEL_DIR=/home/ubuntu/tcurity-ai/models/phase_a            # 최신모델 위치(고정)
+  PHASE_A_DATASET_VERSION=v001                                        # 선택
+  PHASE_A_SAVE_DIAGNOSTICS=0|1                                        # 선택(기본 0)
+  PHASE_A_KEEP_BACKUPS=0|1|2|3...                                     # 선택(기본 0)
 """
 
 import os
@@ -415,13 +415,13 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    parser.add_argument("--data-dir", default=None, help="학습 데이터 디렉토리 (우선순위: arg > $DATA_COLLECTED_DIR)")
-    parser.add_argument("--output-root", default=None, help="모델 출력 루트(우선순위: arg > $MODEL_OUTPUT_ROOT)")
-    parser.add_argument("--experiment", default=None, help="MLflow experiment (우선순위: arg > $MLFLOW_EXPERIMENT_NAME)")
+    parser.add_argument("--data-dir", default=None, help="학습 데이터 디렉토리 (우선순위: arg > $PHASE_A_DATA_DIR)")
+    parser.add_argument("--output-root", default=None, help="모델 출력 루트(우선순위: arg > $PHASE_A_MODEL_DIR)")
+    parser.add_argument("--experiment", default=None, help="MLflow experiment (우선순위: arg > $PHASE_A_EXPERIMENT_NAME)")
     parser.add_argument("--run-name", default=None, help="MLflow run 이름")
     parser.add_argument("--recursive", action="store_true", help="하위 폴더까지 스캔")
 
-    parser.add_argument("--dataset_version", default=None, help="데이터셋 버전 태그(우선순위: arg > $DATASET_VERSION)")
+    parser.add_argument("--dataset_version", default=None, help="데이터셋 버전 태그(우선순위: arg > $PHASE_A_DATASET_VERSION)")
 
     parser.add_argument("--human-calib-ratio", type=float, default=0.10)
     parser.add_argument("--human-test-ratio", type=float, default=0.20)
@@ -439,24 +439,24 @@ def main():
 
     # ---- env ----
     tracking_uri = _to_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", ""))
-    experiment_name = args.experiment or os.environ.get("MLFLOW_EXPERIMENT_NAME") or "captcha-phase-a"
+    experiment_name = args.experiment or os.environ.get("PHASE_A_EXPERIMENT_NAME") or "phase-a-isolation-forest"
     run_name = args.run_name or f"phaseA_iforest_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    dataset_version = args.dataset_version or os.environ.get("DATASET_VERSION") or "dev"
+    dataset_version = args.dataset_version or os.environ.get("PHASE_A_DATASET_VERSION") or "dev"
 
-    save_diag = (os.environ.get("SAVE_DIAGNOSTICS", "0").strip() == "1")
-    keep_backups = int(os.environ.get("KEEP_BACKUPS", "0").strip() or "0")
+    save_diag = (os.environ.get("PHASE_A_SAVE_DIAGNOSTICS", "0").strip() == "1")
+    keep_backups = int(os.environ.get("PHASE_A_KEEP_BACKUPS", "0").strip() or "0")
 
     script_dir = Path(__file__).resolve().parent
     data_dir = Path(
         args.data_dir
-        or os.environ.get("DATA_COLLECTED_DIR")
+        or os.environ.get("PHASE_A_DATA_DIR")
         or (script_dir / "data" if (script_dir / "data").exists() else script_dir / "data_collected")
     ).expanduser().resolve()
 
     output_root = Path(
         args.output_root
-        or os.environ.get("MODEL_OUTPUT_ROOT")
+        or os.environ.get("PHASE_A_MODEL_DIR")
         or (script_dir / "models" / "phase_a")
     ).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
@@ -634,7 +634,7 @@ def main():
         for m, rate in bot_block_by_mode.items():
             mlflow.log_metric(f"bot_block_{m}", float(rate))
 
-        # 운영 파일도 artifact로 남겨두면 “서버에서 파일 날려먹어도” 복구가 쉬움
+        # 운영 파일도 artifact로 남겨두면 "서버에서 파일 날려먹어도" 복구가 쉬움
         for fn in required_files:
             mlflow.log_artifact(str(output_root / fn))
         if save_diag:
