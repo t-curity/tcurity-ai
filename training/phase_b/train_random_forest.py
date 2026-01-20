@@ -9,6 +9,13 @@
 3. Cross-validation
 4. Feature importance 시각화
 
+권장 환경변수:
+  MLFLOW_TRACKING_URI=http://61.109.238.4:5000                        # MLflow 서버 URI
+  PHASE_B_BEHAVIOR_EXPERIMENT_NAME=phase-b-random-forest              # MLflow experiment 이름
+  PHASE_B_BEHAVIOR_DATA_DIR=/data/phase_b                             # 학습 데이터 경로
+  PHASE_B_BEHAVIOR_MODEL_DIR=/models/phase_b                          # 모델 저장 경로
+  PHASE_B_BEHAVIOR_DATASET_VERSION=v001                               # 데이터셋 버전 (선택)
+
 사용법:
   # 기본 실행
   python -m training.phase_b.train_random_forest --target-human-pass 0.99
@@ -102,7 +109,14 @@ def human_pass_threshold(human_scores: np.ndarray, target_pass: float) -> float:
     return float(np.quantile(human_scores, q))
 
 
-def resolve_out_path(root: Path, out_arg: str) -> Path:
+def resolve_out_path(root: Path, out_arg: str, model_dir: Optional[str] = None) -> Path:
+    """모델 저장 경로 결정"""
+    # 환경변수로 model_dir이 지정되면 우선 사용
+    if model_dir:
+        base = Path(model_dir).expanduser().resolve()
+        p = Path(out_arg)
+        return base / p.name
+    
     p = Path(out_arg)
     if p.is_absolute():
         return p
@@ -203,8 +217,14 @@ def tune_hyperparameters(X_train, y_train, seed: int = 42) -> Dict:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-dir", type=str, default="data/phase_b")
-    ap.add_argument("--out", type=str, default="model_randomforest.pkl")
+    
+    # data/output: env fallback 허용
+    ap.add_argument("--data-dir", type=str, default=None,
+                    help="학습 데이터 경로. 미지정 시 $PHASE_B_BEHAVIOR_DATA_DIR 사용")
+    ap.add_argument("--out", type=str, default="model_randomforest.pkl",
+                    help="모델 파일명")
+    ap.add_argument("--model-dir", type=str, default=None,
+                    help="모델 저장 디렉토리. 미지정 시 $PHASE_B_BEHAVIOR_MODEL_DIR 사용")
     ap.add_argument("--seed", type=int, default=42)
 
     ap.add_argument("--target-human-pass", type=float, default=0.99)
@@ -229,15 +249,36 @@ def main():
                     help="GridSearchCV로 하이퍼파라미터 튜닝")
     
     # MLflow 설정
-    ap.add_argument("--experiment", type=str, default=None)
-    ap.add_argument("--run-name", type=str, default=None)
-    ap.add_argument("--dataset-version", type=str, default=None)
+    ap.add_argument("--experiment", type=str, default=None,
+                    help="MLflow experiment 이름. 미지정 시 $PHASE_B_BEHAVIOR_EXPERIMENT_NAME 사용")
+    ap.add_argument("--run-name", type=str, default=None,
+                    help="MLflow run 이름. 미지정 시 자동 생성")
+    ap.add_argument("--dataset-version", type=str, default=None,
+                    help="데이터셋 버전 태그. 미지정 시 $PHASE_B_BEHAVIOR_DATASET_VERSION 사용")
     
     args = ap.parse_args()
 
     root = Path(__file__).resolve().parents[2]
-    data_dir = (root / args.data_dir).resolve()
-    out_path = resolve_out_path(root, args.out)
+    
+    # 데이터 디렉토리 결정
+    data_dir_str = (
+        args.data_dir
+        or os.environ.get("PHASE_B_BEHAVIOR_DATA_DIR")
+        or os.environ.get("DATA_DIR")  # 하위 호환
+        or "data/phase_b"
+    )
+    data_dir = Path(data_dir_str)
+    if not data_dir.is_absolute():
+        data_dir = (root / data_dir).resolve()
+    
+    # 모델 디렉토리 결정
+    model_dir = (
+        args.model_dir
+        or os.environ.get("PHASE_B_BEHAVIOR_MODEL_DIR")
+        or os.environ.get("MODEL_OUTPUT_ROOT")  # 하위 호환
+    )
+    
+    out_path = resolve_out_path(root, args.out, model_dir)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Feature 선택
@@ -250,18 +291,29 @@ def main():
 
     # MLflow 설정
     tracking_uri = _to_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", ""))
-    experiment_name = args.experiment or os.environ.get("MLFLOW_EXPERIMENT_NAME") or "captcha-phase-b"
+    experiment_name = (
+        args.experiment
+        or os.environ.get("PHASE_B_BEHAVIOR_EXPERIMENT_NAME")
+        or os.environ.get("MLFLOW_EXPERIMENT_NAME")  # 하위 호환
+        or "phase-b-random-forest"
+    )
     run_name = args.run_name or f"phaseB_rf_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    dataset_version = args.dataset_version or os.environ.get("DATASET_VERSION") or "dev"
+    dataset_version = (
+        args.dataset_version
+        or os.environ.get("PHASE_B_BEHAVIOR_DATASET_VERSION")
+        or os.environ.get("DATASET_VERSION")  # 하위 호환
+        or "dev"
+    )
 
     print("=" * 60)
-    print("[Phase B] Random Forest Training")
+    print("Phase B Behavior - Random Forest Training")
     print("=" * 60)
     print(f"[data_dir]         {data_dir}")
     print(f"[out_path]         {out_path}")
     print(f"[mlflow]           {tracking_uri}")
     print(f"[experiment]       {experiment_name}")
-    print(f"[features]         {len(feature_names)} ({'' if include_advanced else 'basic only'})")
+    print(f"[dataset_version]  {dataset_version}")
+    print(f"[features]         {len(feature_names)} ({'advanced' if include_advanced else 'basic only'})")
     print(f"[tune mode]        {args.tune}")
     print()
 
@@ -309,6 +361,7 @@ def main():
         mlflow.set_tag("dataset_version", dataset_version)
         mlflow.set_tag("feature_version", "v2_advanced" if include_advanced else "v1_basic")
         mlflow.set_tag("tuned", str(args.tune))
+        mlflow.set_tag("sub_type", "behavior")
 
         # 모델 학습
         clf = RandomForestClassifier(
