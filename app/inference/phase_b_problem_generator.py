@@ -9,16 +9,16 @@ from typing import Dict, List, Tuple
 # Phase B 문제 출제 규칙
 # =====================================================
 PHASE_B_RULES: Dict[str, List[str]] = {
-    "Bird": ["Building", "Device", "Food", "Vehicle"],
-    "Building": ["Nature", "Device", "Sports", "Vehicle"],
-    "Cat": ["Dog", "Bird", "Turtle", "Building"],
-    "Device": ["Building", "Food", "Nature", "Sports"],
-    "Dog": ["Cat", "Bird", "Turtle", "Building"],
-    "Food": ["Device", "Building", "Nature", "Sports"],
-    "Nature": ["Building", "Device", "Vehicle", "Sports"],
-    "Sports": ["Building", "Device", "Food", "Nature"],
-    "Turtle": ["Dog", "Cat", "Bird", "Nature"],
-    "Vehicle": ["Building", "Nature", "Device", "Sports"],
+    "Bird": ["Dog", "Nature", "Food", "Building"],
+    "Building": ["Vehicle", "Nature", "Device", "Sports"],
+    "Cat": ["Dog", "Bird", "Nature", "Food"],
+    "Device": ["Vehicle", "Building", "Sports", "Food"],
+    "Dog": ["Bird", "Nature", "Food", "Building"],
+    "Food": ["Nature", "Bird", "Dog", "Building"],
+    "Nature": ["Bird", "Food", "Dog", "Building"],
+    "Sports": ["Vehicle", "Device", "Building", "Nature"],
+    "Turtle": ["Dog", "Bird", "Nature", "Food"],
+    "Vehicle": ["Device", "Building", "Sports", "Nature"],
 }
 
 
