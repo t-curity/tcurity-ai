@@ -9,30 +9,30 @@ from typing import Dict, List, Tuple
 # Phase B 문제 출제 규칙
 # =====================================================
 PHASE_B_RULES: Dict[str, List[str]] = {
-    "Animals": ["Building", "Devices", "Fashion", "Vehicle"],
-    "Birds": ["Building", "Devices", "Fashion", "Food"],
-    "Building": ["Nature", "Devices", "Fashion", "Sports"],
-    "Devices": ["Instrument", "Building", "Fashion", "Food"],
-    "Fashion": ["Devices", "Instrument", "Building", "Food"],
-    "Food": ["Instrument", "Devices", "Fashion", "Nature"],
-    "Instrument": ["Building", "Devices", "Fashion", "Nature"],
-    "Nature": ["Building", "Devices", "Instrument", "Vehicle"],
-    "Sports": ["Fashion", "Building", "Devices", "Food"],
-    "Vehicle": ["Building", "Nature", "Devices", "Instrument"],
+    "Bird": ["Building", "Device", "Food", "Vehicle"],
+    "Building": ["Nature", "Device", "Sports", "Vehicle"],
+    "Cat": ["Dog", "Bird", "Turtle", "Building"],
+    "Device": ["Building", "Food", "Nature", "Sports"],
+    "Dog": ["Cat", "Bird", "Turtle", "Building"],
+    "Food": ["Device", "Building", "Nature", "Sports"],
+    "Nature": ["Building", "Device", "Vehicle", "Sports"],
+    "Sports": ["Building", "Device", "Food", "Nature"],
+    "Turtle": ["Dog", "Cat", "Bird", "Nature"],
+    "Vehicle": ["Building", "Nature", "Device", "Sports"],
 }
 
 
 CLASS_KO_MAP: Dict[str, str] = {
-    "Animals": "동물",
-    "Birds": "새",
+    "Bird": "새",
     "Building": "건물",
-    "Devices": "전자기기",
-    "Fashion": "패션",
+    "Cat": "고양이",
+    "Device": "전자기기",
+    "Dog": "강아지",
     "Food": "음식",
     "Nature": "자연",
     "Sports": "스포츠",
-    "Vehicle": "탈 것",
-    "Instrument": "악기",
+    "Turtle": "거북이",
+    "Vehicle": "탈것",
 }
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
