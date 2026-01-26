@@ -137,7 +137,7 @@ def generate_phase_b_problem(
     # 4) 반환
     # -------------------------------
     return {
-    "question": f"{display_class} 이미지를 번호 순서대로 아래 칸에 드래그하세요."
+    "question": f"{display_class} 이미지를 번호 순서대로 아래 칸에 드래그하세요.",
     "target_class": target_class,
     "display_class": display_class,
     "images": images,                    # FE용
