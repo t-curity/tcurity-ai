@@ -46,11 +46,7 @@ logs/
 # ===============================
 # Model Artifacts
 # ===============================
-models/*.onnx
-models/*.pth
-models/*.pt
-models/*.pkl
-models/*.joblib
+models/
 
 # (필요하면 특정 모델만 예외 처리 가능)
 # !models/README.md

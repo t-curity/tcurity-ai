@@ -129,7 +129,7 @@ class PhaseAInfer:
     """
     
     RULE_THRESHOLDS = {
-        "cv_time_min": 0.03,
+        "cv_time_min": 0.30,
         "speed_entropy_min": 0.04,
         "dt_entropy_min": 0.03,
         "decel_accel_min": 0.05,
@@ -284,24 +284,35 @@ def save_phase_a_sample(
     points: List[Dict[str, float]],
     infer: Dict[str, Any],
 ) -> Optional[Path]:
-    """Phase A 요청 샘플을 json으로 저장."""
+    """
+    Phase A 요청 샘플을 json으로 저장.
+    
+    저장 로직:
+    - Rule 실패 + AI 봇 → 저장 안 함 (확실한 봇)
+    - 그 외 → human_pred/에 저장 (사람으로 가정하고 학습)
+    """
     if not PHASE_A_SAVE_ENABLED:
         return None
     if PHASE_A_SAVE_RATIO < 1.0 and random.random() > PHASE_A_SAVE_RATIO:
         return None
 
+    pred_label = infer.get("label")
+    reason = infer.get("reason", "")
+    is_rule_fail = reason.startswith("rule_based:")
+    is_bot = pred_label in ("봇", "bot", "BOT")
+    
+    # Rule 실패 + AI 봇 → 저장 안 함 (확실한 봇)
+    if is_rule_fail and is_bot:
+        print(f"[SAVE] 저장 안 함 - Rule 실패 + AI 봇: {reason}")
+        return None
+    
+    # 그 외는 모두 human_pred/에 저장 (사람으로 가정)
+    bucket = "human_pred"
+
     now = datetime.now()
     ymd = now.strftime("%Y%m%d")
     stamp = now.strftime("%Y%m%d_%H%M%S_%f")
     uid = uuid.uuid4().hex[:10]
-
-    pred_label = infer.get("label")
-    if pred_label in ("사람", "human", "HUMAN"):
-        bucket = "human_pred"
-    elif pred_label in ("봇", "bot", "BOT"):
-        bucket = "bot_pred"
-    else:
-        bucket = "unknown"
 
     out_dir = PHASE_A_DATA_DIR / bucket / ymd
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -315,6 +326,7 @@ def save_phase_a_sample(
             "pred_label": pred_label,
             "score": infer.get("score"),
             "threshold": infer.get("threshold"),
+            "reason": reason,
         },
         "received_at": now.isoformat(timespec="seconds"),
         "line": raw_payload.get("line") or raw_payload.get("cutline") or raw_payload.get("guide_line"),
@@ -323,4 +335,5 @@ def save_phase_a_sample(
 
     tmp_path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp_path, out_path)
+    print(f"[SAVE] human_pred/에 저장: {out_path.name}")
     return out_path
