@@ -235,12 +235,12 @@ def phase_b_problem_generate(payload: PhaseBGeneratePayload):
 
         problem = generate_phase_b_problem(target_class)
 
-        for k in ["question", "target_class", "display_class", "images", "answer_uuids"]:
+        for k in ["instruction", "target_class", "display_class", "images", "answer_uuids"]:
             if k not in problem:
                 raise ValueError(f"generate_phase_b_problem missing key: {k}")
 
         return {
-            "question": problem["question"],
+            "instruction": problem["instruction"],
             "target_class": problem["target_class"],
             "display_class": problem["display_class"],
             "images": [{"image_id": img["uuid"], "image_base64": img["image_base64"]} for img in problem["images"]],
