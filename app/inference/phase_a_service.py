@@ -129,7 +129,7 @@ class PhaseAInfer:
     """
     
     RULE_THRESHOLDS = {
-        "cv_time_min": 0.30,
+        "cv_time_min": 0.03,
         "speed_entropy_min": 0.04,
         "dt_entropy_min": 0.03,
         "decel_accel_min": 0.05,
