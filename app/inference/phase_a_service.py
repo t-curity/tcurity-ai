@@ -301,13 +301,12 @@ def save_phase_a_sample(
     is_rule_fail = reason.startswith("rule_based:")
     is_bot = pred_label in ("봇", "bot", "BOT")
     
-    # Rule 실패 + AI 봇 → 저장 안 함 (확실한 봇)
+    # Rule 실패 + AI 봇 → bot_pred/ 저장 (확실한 봇)
+    # 그 외 → human_pred/ 저장 (사람으로 가정하고 학습)
     if is_rule_fail and is_bot:
-        print(f"[SAVE] 저장 안 함 - Rule 실패 + AI 봇: {reason}")
-        return None
-    
-    # 그 외는 모두 human_pred/에 저장 (사람으로 가정)
-    bucket = "human_pred"
+        bucket = "bot_pred"
+    else:
+        bucket = "human_pred"
 
     now = datetime.now()
     ymd = now.strftime("%Y%m%d")
@@ -335,5 +334,5 @@ def save_phase_a_sample(
 
     tmp_path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp_path, out_path)
-    print(f"[SAVE] human_pred/에 저장: {out_path.name}")
+    print(f"[SAVE] {bucket}/에 저장: {out_path.name}")
     return out_path
