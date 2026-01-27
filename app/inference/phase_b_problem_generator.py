@@ -16,9 +16,9 @@ PHASE_B_RULES: Dict[str, List[str]] = {
     "Dog": ["Bird", "Nature", "Food", "Building"],
     "Food": ["Nature", "Bird", "Dog", "Building"],
     "Nature": ["Bird", "Food", "Dog", "Building"],
-    "Sports": ["Vehicle", "Device", "Building", "Nature"],
+    "Sports": ["Dog", "Device", "Building", "Nature"],
     "Turtle": ["Dog", "Bird", "Nature", "Food"],
-    "Vehicle": ["Device", "Building", "Sports", "Nature"],
+    "Vehicle": ["Device", "Building", "Turtle", "Nature"],
 }
 
 
