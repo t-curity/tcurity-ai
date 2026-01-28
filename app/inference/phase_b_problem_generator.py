@@ -10,15 +10,15 @@ from typing import Dict, List, Tuple
 # =====================================================
 PHASE_B_RULES: Dict[str, List[str]] = {
     "Bird": ["Dog", "Nature", "Food", "Building"],
-    "Building": ["Vehicle", "Nature", "Device", "Sports"],
+    "Building": ["Car", "Nature", "Device", "Sport"],
     "Cat": ["Dog", "Bird", "Nature", "Food"],
-    "Device": ["Vehicle", "Building", "Sports", "Food"],
+    "Device": ["Car", "Building", "Sport", "Food"],
     "Dog": ["Bird", "Nature", "Food", "Building"],
     "Food": ["Nature", "Bird", "Dog", "Building"],
     "Nature": ["Bird", "Food", "Dog", "Building"],
-    "Sports": ["Dog", "Device", "Building", "Nature"],
+    "Sport": ["Dog", "Device", "Building", "Nature"],
     "Turtle": ["Dog", "Bird", "Nature", "Food"],
-    "Vehicle": ["Device", "Building", "Turtle", "Nature"],
+    "Car": ["Device", "Building", "Turtle", "Nature"],
 }
 
 
@@ -30,9 +30,9 @@ CLASS_KO_MAP: Dict[str, str] = {
     "Dog": "강아지",
     "Food": "음식",
     "Nature": "자연",
-    "Sports": "스포츠",
+    "Sport": "스포츠",
     "Turtle": "거북이",
-    "Vehicle": "탈것",
+    "Car": "탈것",
 }
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
