@@ -186,10 +186,11 @@ class PhaseAInfer:
         """
         th = self.RULE_THRESHOLDS
         
-        speed_entropy = features[16]
-        dt_entropy = features[17]
-        end_decel = features[18]
-        start_accel = features[19]
+        # 40-feature 인덱스: speed_entropy=36, dt_entropy=37, end_deceleration=38, start_acceleration=39
+        speed_entropy = features[36]
+        dt_entropy = features[37]
+        end_decel = features[38]
+        start_accel = features[39]
         
         if speed_entropy < th["speed_entropy_min"]:
             return f"speed_entropy={speed_entropy:.4f}"
