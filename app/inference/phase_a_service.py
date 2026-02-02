@@ -129,12 +129,12 @@ class PhaseAInfer:
     """
     
     RULE_THRESHOLDS = {
-        "cv_time_min": 0.15,
+        "cv_time_min": 0.02,
         "speed_entropy_min": 0.04,
         "dt_entropy_min": 0.03,
         "decel_accel_min": 0.05,
         "min_points": 10,
-        "min_total_time_ms": 200,
+        "min_total_time_ms": 100,
     }
     
     def __init__(self, model_dir: Path = DEFAULT_MODEL_DIR):
