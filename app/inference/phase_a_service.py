@@ -121,67 +121,15 @@ def _calc_cv_time_from_points(points: List[Dict[str, float]]) -> float:
     return dt_std / dt_mean
 
 
-# ============================================================
-# 피처 인덱스 상수 (v3 - 40개 피처 기준)
-# ============================================================
-# 하드코딩된 인덱스 대신 상수로 관리하여 유지보수성 향상
-FEATURE_INDEX = {
-    # v1 피처 (0-35)
-    "num_points": 0,
-    "x_range": 1,
-    "y_range": 2,
-    "total_time": 3,
-    "mean_speed": 4,
-    "std_speed": 5,
-    "max_speed": 6,
-    "min_speed": 7,
-    "median_speed": 8,
-    "iqr_speed": 9,
-    "skew_speed": 10,
-    "kurt_speed": 11,
-    "mean_acc": 12,
-    "std_acc": 13,
-    "max_abs_acc": 14,
-    "mean_abs_jerk": 15,
-    "std_jerk": 16,
-    "max_abs_jerk": 17,
-    "mean_abs_angle_change": 18,
-    "std_angle_change": 19,
-    "max_abs_angle_change": 20,
-    "sharp_turns": 21,
-    "mean_dt": 22,
-    "std_dt": 23,
-    "max_dt": 24,
-    "min_dt": 25,
-    "cv_time": 26,
-    "pauses": 27,
-    "pause_ratio": 28,
-    "micro_movement_ratio": 29,
-    "mean_smoothness": 30,
-    "std_smoothness": 31,
-    "num_peaks": 32,
-    "initial_speed": 33,
-    "mean_deviation_from_line": 34,
-    "max_deviation_from_line": 35,
-    # v2 추가 피처 (36-39)
-    "speed_entropy": 36,
-    "dt_entropy": 37,
-    "end_deceleration": 38,
-    "start_acceleration": 39,
-}
-
-
 class PhaseAInfer:
     """
     Phase A 추론 클래스.
     - score > threshold => 사람, else 봇
     - Rule-based 필터로 극단적 봇 패턴 추가 탐지
-    
-    피처 버전: v3 (40개 피처)
     """
     
     RULE_THRESHOLDS = {
-        "cv_time_min": 0.30,
+        "cv_time_min": 0.15,
         "speed_entropy_min": 0.04,
         "dt_entropy_min": 0.03,
         "decel_accel_min": 0.05,
@@ -206,13 +154,6 @@ class PhaseAInfer:
         self.model = joblib.load(model_path)
         thr_obj = json.loads(thr_path.read_text(encoding="utf-8"))
         self.threshold = float(thr_obj["threshold"])
-        
-        # 모델 피처 수 검증
-        expected_features = 40
-        if hasattr(self.scaler, 'n_features_in_'):
-            actual_features = self.scaler.n_features_in_
-            if actual_features != expected_features:
-                print(f"[WARN] 모델 피처 수 불일치: 예상 {expected_features}, 실제 {actual_features}")
     
     def _rule_based_bot_check_raw(self, points: List[Dict[str, float]]) -> Optional[str]:
         """
@@ -242,16 +183,13 @@ class PhaseAInfer:
         """
         Rule-based 봇 탐지 (feature 기반).
         전처리 후 추출된 feature로 검사.
-        
-        v3 (40개 피처) 기준 인덱스 사용
         """
         th = self.RULE_THRESHOLDS
         
-        # v3 인덱스 (36-39)
-        speed_entropy = features[FEATURE_INDEX["speed_entropy"]]      # 36
-        dt_entropy = features[FEATURE_INDEX["dt_entropy"]]            # 37
-        end_decel = features[FEATURE_INDEX["end_deceleration"]]       # 38
-        start_accel = features[FEATURE_INDEX["start_acceleration"]]   # 39
+        speed_entropy = features[16]
+        dt_entropy = features[17]
+        end_decel = features[18]
+        start_accel = features[19]
         
         if speed_entropy < th["speed_entropy_min"]:
             return f"speed_entropy={speed_entropy:.4f}"
