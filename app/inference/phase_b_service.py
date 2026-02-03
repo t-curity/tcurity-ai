@@ -5,6 +5,8 @@
 app/inference/phase_b_service.py
 
 Phase B: 행동 기반 RandomForest 추론 서비스
+  - Rule 기반 사전 필터 (path_efficiency, direction_changes)
+  - AI Model (RandomForest) 추론
 """
 
 from __future__ import annotations
@@ -45,6 +47,19 @@ FEATURE_NAMES_FALLBACK = [
     "idle_time_mean",
     "idle_time_std",
 ]
+
+# ─── Rule 기반 사전 필터 임계값 ───
+# 사람 데이터 417건 / 봇 데이터 3500건 기준 검증 완료
+#   path_efficiency > 0.48: 사람 실패 0.7%, 봇 탐지 75%
+#   direction_changes > 33: 사람 실패 2.4%, 봇 탐지 73.4%
+#   조합 (OR): 사람 실패 3.1%, 봇 탐지 90.0%
+RULE_THRESHOLDS = {
+    "path_efficiency_max": 0.48,   # 이상이면 봇 (직선적 드래그)
+    "direction_changes_max": 33,   # 이상이면 봇 (과도한 방향 전환)
+}
+
+# AI Model threshold (기존 0.336 → 0.6으로 상향)
+MODEL_THRESHOLD_OVERRIDE = 0.6
 
 
 def _import_extract_features():
@@ -165,8 +180,27 @@ class PhaseBInfer:
             self.threshold = 0.5
             self.feature_names = FEATURE_NAMES_FALLBACK
 
+        # threshold override 적용
+        self.threshold = MODEL_THRESHOLD_OVERRIDE
+        logger.info(f"[Phase B] threshold={self.threshold} (override), features={len(self.feature_names)}개")
+
         self._classes = list(getattr(self.model, "classes_", [0, 1]))
         logger.info(f"[Phase B] threshold={self.threshold}, features={len(self.feature_names)}개")
+
+    # ─── Rule 기반 사전 필터 ───
+    def _check_rules(self, features: Dict[str, float]) -> Optional[str]:
+        """
+        Rule에 걸리면 사유 문자열 반환, 통과하면 None.
+        """
+        pe = features.get("path_efficiency", 0.0)
+        if pe > RULE_THRESHOLDS["path_efficiency_max"]:
+            return f"path_efficiency={pe:.4f} > {RULE_THRESHOLDS['path_efficiency_max']}"
+
+        dc = features.get("direction_changes", 0.0)
+        if dc > RULE_THRESHOLDS["direction_changes_max"]:
+            return f"direction_changes={dc:.0f} > {RULE_THRESHOLDS['direction_changes_max']}"
+
+        return None
 
     def _vectorize(self, features: Dict[str, float]) -> np.ndarray:
         return np.array([float(features.get(n, 0.0)) for n in self.feature_names], dtype=float).reshape(1, -1)
@@ -183,6 +217,22 @@ class PhaseBInfer:
         *,
         return_score: bool = False,
     ) -> Dict[str, Any]:
+        # 1단계: Rule 필터
+        rule_reason = self._check_rules(features)
+        if rule_reason:
+            print(f"[Phase B] Rule 차단: {rule_reason}")
+            result: Dict[str, Any] = {
+                "pass": False,
+                "label": "봇",
+                "blocked_by": "rule",
+                "rule_reason": rule_reason,
+            }
+            if return_score:
+                result["score"] = 0.0
+                result["threshold"] = float(self.threshold)
+            return result
+
+        # 2단계: AI Model
         X = self._vectorize(features)
         prob = self.model.predict_proba(X)[0]
         human_prob = self._human_prob(prob)
@@ -191,6 +241,7 @@ class PhaseBInfer:
         result: Dict[str, Any] = {
             "pass": bool(is_human),
             "label": "사람" if is_human else "봇",
+            "blocked_by": None if is_human else "model",
         }
 
         if return_score:
